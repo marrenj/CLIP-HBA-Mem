@@ -1,4 +1,4 @@
-from train_dynamic_step import *
+from train_meg_things import *
 import shutil
 from scipy.interpolate import interp1d
 

@@ -1,4 +1,4 @@
-from train_static_no_softmax import  *
+from train_behavior_things import  *
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm

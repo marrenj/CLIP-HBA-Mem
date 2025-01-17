@@ -1,4 +1,4 @@
-from train_dynamic_step import  *
+from train_meg_things import  *
 import inspect
 import pandas as pd
 import matplotlib.pyplot as plt

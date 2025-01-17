@@ -1,4 +1,4 @@
-from train_dynamic_individual_cichy_transfer import  *
+from train_individual_cichy import  *
 import inspect
 import pandas as pd
 import matplotlib.pyplot as plt
