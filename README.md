@@ -80,7 +80,7 @@ The integration of human and artificial intelligence represents a scientific opp
 └───output # output of the model inference scripts
 ```
 
-# setup environment:
+# Environment Setup:
 
 ```
 conda create -n cliphba python=3.8.18
