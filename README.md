@@ -133,12 +133,7 @@ python inference_meg.py # Change the image path and model configurations in the 
 
 ## THINGS
 Download Things-MEG Data from [here](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
-
+s
 
 ## Things Image Set
 Things Things Image Dataset can be downloaded from [here](https://osf.io/jum2f/)
-
-
-
-# External Brain Alignment
-See the `Brain_Alignments` folder for the code to align the embeddings with the brain data.
