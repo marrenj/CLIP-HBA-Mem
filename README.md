@@ -29,28 +29,24 @@ The integration of human and artificial intelligence represents a scientific opp
 │   ├───Brain_Alignments # Visualizations for model-neural alignment with various dataset
 │   │   └───Hebart1854_model_rdms
 │   ├───Data # required images, arrays, and annotations for training and inference
-│   │   ├───Cichy
+│   │   ├───Cichy # Individual Training Data Source
 │   │   │   └───stimuli
-│   │   ├───Encoder_Correspondence
+│   │   ├───Encoder_Correspondence # Encoder Correspondence for the model (used for matrix pre-optimization)
 │   │   │   └───weighting_matrix
 │   │   ├───figures
-│   │   ├───misc
+│   │   ├───misc # most miscellaneous data EDA and visualization scripts
 │   │   │   └───temp_rdms
 │   │   ├───models
 │   │   │   ├───partial
-│   │   │   └───test_models
 │   │   ├───test_images
 │   │   ├───Things1854
 │   │   ├───ThingsMEG_RDMs
 │   │   └───TovarDataset
-│   │       ├───ds1
-│   │       ├───ds2
-│   │       └───ds3
+│   │       ├───...
 │   ├───figures # figures used for this README and demonstrations
 │   └───sizesearch # search the minimum size of training set for effective behavioral training
 ├───mmedit # model backbone scripts
 │   ├─── ...
-
 │   ├───models
 │   │   ├───backbones
 │   │   │   ├───encoder_decoders
@@ -60,40 +56,24 @@ The integration of human and artificial intelligence represents a scientific opp
 │   │   │   │   │   
 │   │   │   │   ├───necks
 │   │   │   │   │   
-│   │   │   │   
 │   │   │   ├───generation_backbones
 │   │   │   │   
 │   │   │   ├───sr_backbones
 │   │   │   │   
 │   │   │   ├───vfi_backbones
 │   │   │   │   
-│   │   │   
-│   │   ├───common
-│   │   │   
+│   │   ├───...
 │   │   ├───components
 │   │   │   ├───clip
 │   │   │   │   
-│   │   │   ├───clip_baseline
+│   │   │   ├───...
 │   │   │   │   
-│   │   │   ├───clip_hba
+│   │   │   ├───clip_hba_dynamic_3d # Dynamic CLIP-HBA-MEG (Group & Individual)
 │   │   │   │   
-│   │   │   ├───clip_hba_dynamic_3d
-│   │   │   │   
-│   │   │   ├───clip_hba_dynamic_3d_viz
-│   │   │   │   
-│   │   │   ├───clip_hba_dynamic_v3
-│   │   │   ├───clip_hba_dynamic_v6
-│   │   │   ├───clip_hba_no_softmax
-│   │   │   │   
-│   │   │   ├───clip_test
-│   │   │   ├───discriminators
-│   │   │   │   
-│   │   │   ├───refiners
-│   │   │   │   
-│   │   │   ├───stylegan2
+│   │   │   ├───clip_hba_no_softmax # Static CLIP-HBA-Behavior
 │   │   │   │   
 │   │   │   ...
-│   │   │   
+
 │   ├───utils
 │   │   
 │   
