@@ -22,6 +22,118 @@ This repository contains all the key training, inference, and visualization scri
 The integration of human and artificial intelligence represents a scientific opportunity to advance our understanding of information processing, as each system offers unique computational insights that can enhance and inform the other. The synthesis of human cognitive principles with artificial intelligence has the potential to produce more interpretable and functionally aligned computational models, while simultaneously providing a formal framework for investigating the neural mechanisms underlying perception, learning, and decision-making through systematic model comparisons and representational analyses. In this study, we introduce personalized brain-inspired modeling that integrates human behavioral embeddings and neural data to align with cognitive processes. We took a step-wise approach where we fine-tuned the Contrastive Language–Image Pre-training (CLIP) model with a large scale behavioral decisions, group-level neural data, and finally participant-level neural data in a broader framework we have named CLIP-Human Based Analysis (CLIP-HBA). We found that the model fine tuned on a static behavioral embedding (CLIP-HBA-Behavior) significantly enhances its ability to predict human similarity judgments while indirectly aligning it with dynamic representations captured via magnetoencephalography (MEG). To further gain mechanistic insights into the evolution of cognitive processes, we introduced a model specifically fine-tuned on millisecond-level MEG neural dynamics (CLIP-HBA-MEG). This model resulted in enhanced temporal alignment with human neural processing while still showing improvement on behavioral alignment. Finally, we trained individualized models on participant-specific neural data, effectively capturing unique neural dynamics and highlighting the potential for personalized AI systems. Our findings integrate human-based representations into AI development, advancing personalized AI and precise quantification of individual perceptual differences. 
 
 
+# Repo Structure: 
+
+```
+───CLIP-HBA # Main Folder for training, inference, and visualization
+│   ├───Brain_Alignments # Visualizations for model-neural alignment with various dataset
+│   │   └───Hebart1854_model_rdms
+│   ├───Data # required images, arrays, and annotations for training and inference
+│   │   ├───Cichy
+│   │   │   └───stimuli
+│   │   ├───Encoder_Correspondence
+│   │   │   └───weighting_matrix
+│   │   ├───figures
+│   │   ├───misc
+│   │   │   └───temp_rdms
+│   │   ├───models
+│   │   │   ├───partial
+│   │   │   └───test_models
+│   │   ├───test_images
+│   │   ├───Things1854
+│   │   ├───ThingsMEG_RDMs
+│   │   └───TovarDataset
+│   │       ├───ds1
+│   │       ├───ds2
+│   │       └───ds3
+│   ├───figures # figures used for this README and demonstrations
+│   └───sizesearch # search the minimum size of training set for effective behavioral training
+├───mmedit # model backbone scripts
+│   ├───apis
+│   ├───core
+│   │   ├───evaluation
+│   │   │   └───__pycache__
+│   │   ├───export
+│   │   ├───hooks
+│   │   │   └───__pycache__
+│   │   ├───optimizer
+│   │   │   └───__pycache__
+│   │   ├───scheduler
+│   │   │   └───__pycache__
+│   │   ├───utils
+│   │   │   └───__pycache__
+│   │   └───__pycache__
+│   ├───datasets
+│   │   ├───pipelines
+│   │   │   └───__pycache__
+│   │   ├───samplers
+│   │   │   └───__pycache__
+│   │   └───__pycache__
+│   ├───models
+│   │   ├───backbones
+│   │   │   ├───encoder_decoders
+│   │   │   │   ├───decoders
+│   │   │   │   │   └───__pycache__
+│   │   │   │   ├───encoders
+│   │   │   │   │   └───__pycache__
+│   │   │   │   ├───necks
+│   │   │   │   │   └───__pycache__
+│   │   │   │   └───__pycache__
+│   │   │   ├───generation_backbones
+│   │   │   │   └───__pycache__
+│   │   │   ├───sr_backbones
+│   │   │   │   └───__pycache__
+│   │   │   ├───vfi_backbones
+│   │   │   │   └───__pycache__
+│   │   │   └───__pycache__
+│   │   ├───common
+│   │   │   └───__pycache__
+│   │   ├───components
+│   │   │   ├───clip
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_baseline
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_hba
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_hba_dynamic_3d
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_hba_dynamic_3d_viz
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_hba_dynamic_v3
+│   │   │   ├───clip_hba_dynamic_v6
+│   │   │   ├───clip_hba_no_softmax
+│   │   │   │   └───__pycache__
+│   │   │   ├───clip_test
+│   │   │   ├───discriminators
+│   │   │   │   └───__pycache__
+│   │   │   ├───refiners
+│   │   │   │   └───__pycache__
+│   │   │   ├───stylegan2
+│   │   │   │   └───__pycache__
+│   │   │   └───__pycache__
+│   │   ├───extractors
+│   │   │   └───__pycache__
+│   │   ├───inpaintors
+│   │   │   └───__pycache__
+│   │   ├───losses
+│   │   │   └───__pycache__
+│   │   ├───mattors
+│   │   │   └───__pycache__
+│   │   ├───restorers
+│   │   │   └───__pycache__
+│   │   ├───synthesizers
+│   │   │   └───__pycache__
+│   │   ├───transformers
+│   │   │   └───__pycache__
+│   │   ├───video_interpolators
+│   │   │   └───__pycache__
+│   │   └───__pycache__
+│   ├───utils
+│   │   └───__pycache__
+│   └───__pycache__
+└───output # output of the model inference scripts
+```
+
 # setup environment:
 
 ```
