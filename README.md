@@ -1,4 +1,28 @@
-setup environment:
+<h1 align="center"> 
+    <img src="./CLIP-HBA/figures/hba_logo.png" width="400">
+</h1>
+
+
+
+<h1 align="center">
+    <p> Shifting Attention to You: Personalized Brain-Inspired AI Models <br></p>
+</h1>
+
+<h3 align="center">
+    <p> Tovar Lab @ Vanderbilt University <br></p>
+</h3>
+
+
+# Overview
+
+This repository contains all the key training, inference, and visualization script for behavioral/meg fine-tuning with the CLIP architecture. 
+
+# Abstract
+
+The integration of human and artificial intelligence represents a scientific opportunity to advance our understanding of information processing, as each system offers unique computational insights that can enhance and inform the other. The synthesis of human cognitive principles with artificial intelligence has the potential to produce more interpretable and functionally aligned computational models, while simultaneously providing a formal framework for investigating the neural mechanisms underlying perception, learning, and decision-making through systematic model comparisons and representational analyses. In this study, we introduce personalized brain-inspired modeling that integrates human behavioral embeddings and neural data to align with cognitive processes. We took a step-wise approach where we fine-tuned the Contrastive Language–Image Pre-training (CLIP) model with a large scale behavioral decisions, group-level neural data, and finally participant-level neural data in a broader framework we have named CLIP-Human Based Analysis (CLIP-HBA). We found that the model fine tuned on a static behavioral embedding (CLIP-HBA-Behavior) significantly enhances its ability to predict human similarity judgments while indirectly aligning it with dynamic representations captured via magnetoencephalography (MEG). To further gain mechanistic insights into the evolution of cognitive processes, we introduced a model specifically fine-tuned on millisecond-level MEG neural dynamics (CLIP-HBA-MEG). This model resulted in enhanced temporal alignment with human neural processing while still showing improvement on behavioral alignment. Finally, we trained individualized models on participant-specific neural data, effectively capturing unique neural dynamics and highlighting the potential for personalized AI systems. Our findings integrate human-based representations into AI development, advancing personalized AI and precise quantification of individual perceptual differences. 
+
+
+# setup environment:
 
 ```
 conda create -n cliphba python=3.8.18
@@ -14,35 +38,42 @@ pip install -r requirements.txt
 download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/file/d/1_X9w3ttJt419gb8hosBbHSbG3WwRQ2GW/view?usp=share_link)
 
 
-# Behavioral Embedding Training
+# Behavioral Training - Things Dataset
 ```
 cd ./CLIP-HBA
-python train.py #Change the dataset path and model configurations in the train.py file
+python train_behavior_things.py #Change the dataset path and model configurations in the train.py file
 ```
 
-# MEG Dynamic Training
+
+# MEG Group Level Training - Things MEG Data with 3 Participants
 ```
 cd ./CLIP-HBA
-python train_dynamic.py #Change the dataset path and model configurations in the train_dynamic.py file
+python train_meg_things.py #Change the dataset path and model configurations in the train_dynamic.py file
 ```
 
-# Inference
+# MEG Group Level Training - 118 Images with 15 Participants
 ```
 cd ./CLIP-HBA
-python inference_vit.py # Change the image path and model configurations in the inference.py file
+python train_individual_cichy.py #Change the dataset path and model configurations in the train_dynamic.py file
 ```
 
-# RDM Generation after inference embeddings are produced
-This code takes the inference model output embeddings of any images and generate rdms in h5 format. 
+# Inference - Behavior/Static Embeddings and RDMs
 ```
 cd ./CLIP-HBA
-python rdm_generation_clip.py # Change the embedding path and saving path. 
+python inference_behavior.py # Change the image path and model configurations in the inference.py file
 ```
 
-# Hebart Brain Alignment
+# Inference - MEG/Dynamic Embeddings and RDMs 
 ```
-./CLIP-HBA/Brain_Alignments/hebart_brain_alignments.ipynb # for Hebart Things 1854 Objets MEG Alignment
+cd ./CLIP-HBA
+python inference_meg.py # Change the image path and model configurations in the inference.py file
 ```
+
+
+
+# Opensourced Training Data
+
+## THINGS
 Download Things-MEG Data from [here](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
 
 # External Brain Alignment
