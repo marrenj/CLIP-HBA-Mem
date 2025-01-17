@@ -645,11 +645,15 @@ def train_model(model, train_loader, test_loader, device, optimizer, criterion, 
 
 if __name__ == '__main__':
 
+    '''
+    configure training parameters here
+    '''
+
 
     ##############################
     n_dim = 66 # options: 49, 66
-    csv_file = f'./Data/hebart{n_dim}_embedding_rescaled100_1806train.csv'
-    img_dir = './Data/Things1854'
+    csv_file = f'./Data/hebart{n_dim}_embedding_rescaled100_1806train.csv' # image target embedding with image names and indices
+    img_dir = './Data/Things1854' # image input directory
     ##############################
     backbone = 'ViT-L/14' #or options: RN50, ViT-B/32, ViT-B/16, ViT-L/14
     epochs = 500
@@ -664,8 +668,14 @@ if __name__ == '__main__':
     transormer_layers = 1
     rank = 32
     criterion = nn.MSELoss() # nn.MSELoss()
-    cuda = 0
+    cuda = 0 # -1 for all GPUs, 0 for GPU 0, 1 for GPU 1, 2 for CPU
     ##############################
+
+
+
+
+
+    
 
     seed_everything(random_seed)
     
