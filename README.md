@@ -49,26 +49,8 @@ The integration of human and artificial intelligence represents a scientific opp
 │   ├───figures # figures used for this README and demonstrations
 │   └───sizesearch # search the minimum size of training set for effective behavioral training
 ├───mmedit # model backbone scripts
-│   ├───apis
-│   ├───core
-│   │   ├───evaluation
-│   │   │   
-│   │   ├───export
-│   │   ├───hooks
-│   │   │   
-│   │   ├───optimizer
-│   │   │   
-│   │   ├───scheduler
-│   │   │   
-│   │   ├───utils
-│   │   │   
-│   │   
-│   ├───datasets
-│   │   ├───pipelines
-│   │   │   
-│   │   ├───samplers
-│   │   │   
-│   │   
+│   ├─── ...
+
 │   ├───models
 │   │   ├───backbones
 │   │   │   ├───encoder_decoders
@@ -110,24 +92,8 @@ The integration of human and artificial intelligence represents a scientific opp
 │   │   │   │   
 │   │   │   ├───stylegan2
 │   │   │   │   
+│   │   │   ...
 │   │   │   
-│   │   ├───extractors
-│   │   │   
-│   │   ├───inpaintors
-│   │   │   
-│   │   ├───losses
-│   │   │   
-│   │   ├───mattors
-│   │   │   
-│   │   ├───restorers
-│   │   │   
-│   │   ├───synthesizers
-│   │   │   
-│   │   ├───transformers
-│   │   │   
-│   │   ├───video_interpolators
-│   │   │   
-│   │   
 │   ├───utils
 │   │   
 │   
