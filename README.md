@@ -12,7 +12,7 @@
     <p> Tovar Lab @ Vanderbilt University <br></p>
 </h3>
 
-
+[[`Paper`](https://arxiv.org/abs/2502.04658)] [[`BibTeX`](#citation)]
 # Overview
 
 This repository contains all the key training, inference, and visualization script for behavioral/meg fine-tuning with the CLIP architecture. 
@@ -91,6 +91,18 @@ python /CLIP-HBA/inference_meg_group.py
 python /CLIP-HBA/inference_meg_individual.py
 ```
 
+# Citation: 
+```
+@misc{zhao2025shiftingattentionyoupersonalized,
+      title={Shifting Attention to You: Personalized Brain-Inspired AI Models}, 
+      author={Stephen Chong Zhao and Yang Hu and Jason Lee and Andrew Bender and Trisha Mazumdar and Mark Wallace and David A. Tovar},
+      year={2025},
+      eprint={2502.04658},
+      archivePrefix={arXiv},
+      primaryClass={q-bio.NC},
+      url={https://arxiv.org/abs/2502.04658}, 
+}
+```
 
 
 # Opensourced Training Data
