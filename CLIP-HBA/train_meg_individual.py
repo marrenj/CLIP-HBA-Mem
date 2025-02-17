@@ -8,16 +8,15 @@ def main():
         'img_dir': './Data/Cichy/stimuli',
         'rdm_dir': "./Data/Cichy/Cichy_MEG_RDM_rescaled.npy",
         'model_save_folder': './models/cliphba_meg_individual_test',
-        'n_dim': 66,
         
         # Participant settings
-        'n_participants': 15,
-        'skip_id': [],
+        'n_participants': 15, # total number of participants
+        'skip_id': [], # skip the training of specific participants
         
         # Model parameters
         'backbone': 'ViT-L/14',
-        'epochs': 40,
-        'fw_tuning_epochs': 10,
+        'epochs': 40, # number of epochs for training
+        'fw_tuning_epochs': 10, # number of epochs for fine-tuning of the feature reweighting matrix before ViT joins the training
         'batch_size': 40,
         'train_portion': 80/100,
         'smoothen_window': 5,
