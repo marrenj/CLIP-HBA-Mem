@@ -9,10 +9,13 @@
 </h1>
 
 <h3 align="center">
+    <p> Stephen Chong Zhao, Yang Hu, Jason Lee, Andrew Bender, Trisha Mazumdar, Mark Wallace, David A. Tovar <br></p>
     <p> Tovar Lab @ Vanderbilt University <br></p>
 </h3>
 
 [[`Paper`](https://arxiv.org/abs/2502.04658)] [[`BibTeX`](#citation)]
+
+
 # Overview
 
 This repository contains all the key training, inference, and visualization script for behavioral/meg fine-tuning with the CLIP architecture. 
