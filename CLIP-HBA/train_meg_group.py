@@ -4,9 +4,9 @@ def main():
     # Define configuration
     config = {
         # Data paths
-        'csv_file': "./Data/spose_embedding66d_rescaled_1806train.csv",
-        'img_dir': "./Data/Things1854",
-        'rdm_dir': "./Data/ThingsMEG_RDMs/ThingsMEG_RDM_4P.npy",
+        'csv_file': "./Data/spose_embedding66d_rescaled_1806train.csv", # csv data annotations of the training stimuli, embedding is not required for MEG training, but need image name and indices
+        'img_dir': "./Data/Things1854", # path to the image directory
+        'rdm_dir': "./Data/ThingsMEG_RDMs/ThingsMEG_RDM_4P.npy", # path to the RDM file
         'n_dim': 66,
         
         # Model parameters
