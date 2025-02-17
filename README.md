@@ -10,10 +10,13 @@
 
 <h3 align="center">
     <p> Stephen Chong Zhao, Yang Hu, Jason Lee, Andrew Bender, Trisha Mazumdar, Mark Wallace, David A. Tovar <br></p>
-    <p> Tovar Lab @ Vanderbilt University <br></p>
 </h3>
 
-[[`Paper`](https://arxiv.org/abs/2502.04658)] [[`BibTeX`](#citation)]
+<p align="center">
+  <a href="https://arxiv.org/abs/2502.04658"><b>Paper</b></a> |
+  <a href="#citation"><b>BibTeX</b></a>
+</p>
+
 
 
 # Overview
@@ -112,7 +115,6 @@ python /CLIP-HBA/inference_meg_individual.py
 
 ## THINGS
 Download Things-MEG Data from [here](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
-s
 
 ## Things Image Set
 Things Things Image Dataset can be downloaded from [here](https://osf.io/jum2f/)
