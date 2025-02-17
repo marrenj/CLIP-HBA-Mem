@@ -19,65 +19,29 @@ This repository contains all the key training, inference, and visualization scri
 
 # Abstract
 
-The integration of human and artificial intelligence represents a scientific opportunity to advance our understanding of information processing, as each system offers unique computational insights that can enhance and inform the other. The synthesis of human cognitive principles with artificial intelligence has the potential to produce more interpretable and functionally aligned computational models, while simultaneously providing a formal framework for investigating the neural mechanisms underlying perception, learning, and decision-making through systematic model comparisons and representational analyses. In this study, we introduce personalized brain-inspired modeling that integrates human behavioral embeddings and neural data to align with cognitive processes. We took a step-wise approach where we fine-tuned the Contrastive Language–Image Pre-training (CLIP) model with a large scale behavioral decisions, group-level neural data, and finally participant-level neural data in a broader framework we have named CLIP-Human Based Analysis (CLIP-HBA). We found that the model fine tuned on a static behavioral embedding (CLIP-HBA-Behavior) significantly enhances its ability to predict human similarity judgments while indirectly aligning it with dynamic representations captured via magnetoencephalography (MEG). To further gain mechanistic insights into the evolution of cognitive processes, we introduced a model specifically fine-tuned on millisecond-level MEG neural dynamics (CLIP-HBA-MEG). This model resulted in enhanced temporal alignment with human neural processing while still showing improvement on behavioral alignment. Finally, we trained individualized models on participant-specific neural data, effectively capturing unique neural dynamics and highlighting the potential for personalized AI systems. Our findings integrate human-based representations into AI development, advancing personalized AI and precise quantification of individual perceptual differences. 
+The integration of human and artificial intelligence represents a scientific opportunity to advance our understanding of information processing, as each system offers unique computational insights that can enhance and inform the other. The synthesis of human cognitive principles with artificial intelligence has the potential to produce more interpretable and functionally aligned computational models, while simultaneously providing a formal framework for investigating the neural mechanisms underlying perception, learning, and decision-making through systematic model comparisons and representational analyses. In this study, we introduce personalized brain-inspired modeling that integrates human behavioral embeddings and neural data to align with cognitive processes. We took a stepwise approach, fine-tuning the Contrastive Language-Image Pre-training (CLIP) model with large-scale behavioral decisions, group-level neural data, and finally, participant-level neural data within a broader framework that we have named CLIP-Human-Based Analysis (CLIP-HBA). We found that fine-tuning on behavioral data enhances its ability to predict human similarity judgments while indirectly aligning it with dynamic representations captured via MEG. To further gain mechanistic insights into the temporal evolution of cognitive processes, we introduced a model specifically fine-tuned on millisecond-level MEG neural dynamics (CLIP-HBA-MEG). This model resulted in enhanced temporal alignment with human neural processing while still showing improvement on behavioral alignment. Finally, we trained individualized models on participant-specific neural data, effectively capturing individualized neural dynamics and highlighting the potential for personalized AI systems. These personalized systems have far-reaching implications for the fields of medicine, cognitive research, human-computer interfaces, and AI development.
 
 
 # Code Structure: 
 
 ```
-───CLIP-HBA # Main Folder for training, inference, and visualization
-│   ├───Brain_Alignments # Visualizations for model-neural alignment with various dataset
-│   │   └───Hebart1854_model_rdms
-│   ├───Data # required images, arrays, and annotations for training and inference
-│   │   ├───Cichy # Individual Training Data Source
-│   │   │   └───stimuli
-│   │   ├───Encoder_Correspondence # Encoder Correspondence for the model (used for matrix pre-optimization)
-│   │   │   └───weighting_matrix
-│   │   ├───figures
-│   │   ├───misc # most miscellaneous data EDA and visualization scripts
-│   │   │   └───temp_rdms
-│   │   ├───models
-│   │   │   ├───partial
-│   │   ├───test_images
-│   │   ├───Things1854
-│   │   ├───ThingsMEG_RDMs
-│   │   └───TovarDataset
-│   │       ├───...
-│   ├───figures # figures used for this README and demonstrations
-│   └───sizesearch # search the minimum size of training set for effective behavioral training
-├───mmedit # model backbone scripts
-│   ├─── ...
-│   ├───models
-│   │   ├───backbones
-│   │   │   ├───encoder_decoders
-│   │   │   │   ├───decoders
-│   │   │   │   │   
-│   │   │   │   ├───encoders
-│   │   │   │   │   
-│   │   │   │   ├───necks
-│   │   │   │   │   
-│   │   │   ├───generation_backbones
-│   │   │   │   
-│   │   │   ├───sr_backbones
-│   │   │   │   
-│   │   │   ├───vfi_backbones
-│   │   │   │   
-│   │   ├───...
-│   │   ├───components
-│   │   │   ├───clip
-│   │   │   │   
-│   │   │   ├───...
-│   │   │   │   
-│   │   │   ├───clip_hba_dynamic_3d # Dynamic CLIP-HBA-MEG (Group & Individual)
-│   │   │   │   
-│   │   │   ├───clip_hba_no_softmax # Static CLIP-HBA-Behavior
-│   │   │   │   
-│   │   │   ...
-
-│   ├───utils
+├───CLIP-HBA
+│   ├───Data # Location for training data and annotations
 │   │   
+│   ├───figures
+│   ├───functions # source code for training and inference pipelines
+│   │   
+│   ├───models
+│   │   ├───cliphba_behavior_text_encoder # partial text encoder model weights for the CLIP-HBA-Behavior model, for MEG training
+│   │   ├───cliphba_meg_individual # Individual model weights
 │   
-└───output # output of the model inference scripts
+├───output # output location for all the inference pipelines
+|
+└───src # all model backend source code for CLIP
+    |...
+    ├───models # Model archiectures
+    ...
+
 ```
 
 # Environment Setup:
@@ -98,33 +62,33 @@ download the pretrained CLIP-HBA model weights from [here](https://drive.google.
 
 # Behavioral Training - Things Dataset
 ```
-cd ./CLIP-HBA
-python train_behavior_things.py #Change the dataset path and model configurations in the train.py file
+python /CLIP-HBA/train_behavior.py
 ```
 
 
 # MEG Group Level Training - Things MEG Data with 3 Participants
 ```
-cd ./CLIP-HBA
-python train_meg_things.py #Change the dataset path and model configurations in the train_dynamic.py file
+python /CLIP-HBA/train_meg_group.py
 ```
 
 # MEG Group Level Training - 118 Images with 15 Participants
 ```
-cd ./CLIP-HBA
-python train_individual_cichy.py #Change the dataset path and model configurations in the train_dynamic.py file
+python /CLIP-HBA/train_meg_individual.py
 ```
 
-# Inference - Behavior/Static Embeddings and RDMs
+# CLIP-HBA-Behavior Inference - Behavior/Static Embeddings and RDMs 
 ```
-cd ./CLIP-HBA
-python inference_behavior.py # Change the image path and model configurations in the inference.py file
+python /CLIP-HBA/inference_behavior.py
 ```
 
-# Inference - MEG/Dynamic Embeddings and RDMs 
+# CLIP-HBA-MEG (Group-Trained) Inference - MEG/Dynamic Embeddings and RDMs 
 ```
-cd ./CLIP-HBA
-python inference_meg.py # Change the image path and model configurations in the inference.py file
+python /CLIP-HBA/inference_meg_group.py
+```
+
+# CLIP-HBA-MEG (Individuals) inference - MEG/Dynamic Individual Embeddings and RDMs for each Participants
+```
+python /CLIP-HBA/inference_meg_individual.py
 ```
 
 
