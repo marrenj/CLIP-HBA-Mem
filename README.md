@@ -66,33 +66,39 @@ pip install -r requirements.txt
 download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/file/d/1_X9w3ttJt419gb8hosBbHSbG3WwRQ2GW/view?usp=share_link)
 
 
-# Behavioral Training - Things Dataset
+# Running the Model
+
+## Training
+
+#### Behavioral Training - Things Dataset
 ```
 python /CLIP-HBA/train_behavior.py
 ```
 
 
-# MEG Group Level Training - Things MEG Data with 3 Participants
+#### MEG Group Level Training - Things MEG Data with 3 Participants
 ```
 python /CLIP-HBA/train_meg_group.py
 ```
 
-# MEG Group Level Training - 118 Images with 15 Participants
+#### MEG Group Level Training - 118 Images with 15 Participants
 ```
 python /CLIP-HBA/train_meg_individual.py
 ```
 
-# CLIP-HBA-Behavior Inference - Behavior/Static Embeddings and RDMs 
+## Inference
+
+#### CLIP-HBA-Behavior Inference - Behavior/Static Embeddings and RDMs 
 ```
 python /CLIP-HBA/inference_behavior.py
 ```
 
-# CLIP-HBA-MEG (Group-Trained) Inference - MEG/Dynamic Embeddings and RDMs 
+#### CLIP-HBA-MEG (Group-Trained) Inference - MEG/Dynamic Embeddings and RDMs 
 ```
 python /CLIP-HBA/inference_meg_group.py
 ```
 
-# CLIP-HBA-MEG (Individuals) inference - MEG/Dynamic Individual Embeddings and RDMs for each Participants
+#### CLIP-HBA-MEG (Individuals) inference - MEG/Dynamic Individual Embeddings and RDMs for each Participants
 ```
 python /CLIP-HBA/inference_meg_individual.py
 ```
