@@ -117,8 +117,8 @@ work_dirs/
 /data/
 /data
 mmedit/.mim
-/output/
 
+/output/*
 # Pytorch
 *.pth
 
@@ -142,3 +142,12 @@ mmedit/.mim
 *.npy
 
 
+!/CLIP-HBA/figures/
+!/CLIP-HBA/figures/*
+
+!/CLIP-HBA/Data/test_images/
+!/CLIP-HBA/Data/test_images/*
+
+!/CLIP-HBA/Data/RDM48_triplet.mat
+!/CLIP-HBA/Data/triplet48_index.npy
+!/CLIP-HBA/Data/words48.mat
