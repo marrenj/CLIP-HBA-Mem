@@ -1,4 +1,4 @@
-from train_static_no_softmax import *
+from functions.train_behavior_things_pipeline import *
 
 import torch
 import os
@@ -59,7 +59,7 @@ def triplet_forward(img_ref, image_left):
 
 if __name__ == '__main__':
     ##############################
-    load_hba = False
+    load_hba = True
     batch_size = 256
     ##############################
 

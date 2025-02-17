@@ -314,39 +314,58 @@ def run_image(model, data_loader, save_folder, device=torch.device("cuda:0")):
         print(f"-----------------------------------------------\n")
 
 
-def run_inference(img_dir, load_hba, n_dim, backbone, model_path, save_folder, batch_size, cuda):
+def run_behavior_inference(config):
+    """
+    Run inference using the provided configuration.
+    
+    Args:
+        config (dict): Configuration dictionary containing:
+            - img_dir (str): Directory containing input images
+            - load_hba (bool): Whether to load HBA weights
+            - backbone (str): CLIP backbone model name
+            - model_path (str): Path to the trained model
+            - save_folder (str): Output directory path
+            - batch_size (int): Batch size for inference
+            - cuda (str): Device specification
+    """
     # Create the directory if it doesn't exist
-    print(f"\nEmbedding will be saved to folder: {save_folder}\n")
-    if os.path.exists(save_folder):
-        shutil.rmtree(save_folder)
-    os.makedirs(save_folder)
+    print(f"\nEmbedding will be saved to folder: {config['save_folder']}\n")
+    if os.path.exists(config['save_folder']):
+        shutil.rmtree(config['save_folder'])
+    os.makedirs(config['save_folder'])
 
     classnames = classnames66
-
-    classnames = [x[0] for x in classnames]
     
-    if backbone == 'RN50':
-        pos_embedding = False
-        print("pos_embedding is False")
-    if backbone == 'ViT-B/16' or backbone == 'ViT-B/32' or backbone == 'ViT-L/14': 
-        pos_embedding = True
-        print("pos_embedding is True")
+    # Determine pos_embedding based on backbone
+    pos_embedding = False if config['backbone'] == 'RN50' else True
+    print(f"pos_embedding is {pos_embedding}")
 
-    model = CLIPHBA(classnames=classnames, backbone_name=backbone, pos_embedding=pos_embedding)
+    # Initialize model
+    model = CLIPHBA(classnames=classnames, 
+                    backbone_name=config['backbone'], 
+                    pos_embedding=pos_embedding)
 
-    if load_hba:
-        apply_dora_to_ViT(model, n_vision_layers=2, n_transformer_layers=1, r=32, dora_dropout=0.1)
-        model_state_dict = torch.load(model_path)
-        adjusted_state_dict = {key.replace("module.", ""): value for key, value in model_state_dict.items()}
+    # Load HBA weights if specified
+    if config['load_hba']:
+        apply_dora_to_ViT(model, 
+                         n_vision_layers=2, 
+                         n_transformer_layers=1, 
+                         r=32, 
+                         dora_dropout=0.1)
+        model_state_dict = torch.load(config['model_path'])
+        adjusted_state_dict = {key.replace("module.", ""): value 
+                             for key, value in model_state_dict.items()}
         model.load_state_dict(adjusted_state_dict)
     else:
-        print(f"Using Original CLIP {backbone}")
+        print(f"Using Original CLIP {config['backbone']}")
 
-    device = torch.device(cuda)
+    device = torch.device(config['cuda'])
     
     # Load the dataset
-    dataset = ImageDataset(img_dir)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    dataset = ImageDataset(config['img_dir'])
+    data_loader = DataLoader(dataset, 
+                           batch_size=config['batch_size'], 
+                           shuffle=False)
     
     # Run the model and save output embeddings
-    run_image(model, data_loader, save_folder, device=device)
+    run_image(model, data_loader, config['save_folder'], device=device)

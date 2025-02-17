@@ -26,6 +26,8 @@ import random
 import math
 import torch.optim as optim
 
+from functions.spose_dimensions import *
+
 import sys
 sys.path.append('../')
 from src.models.backbones.sr_backbones.rrdb_net import RRDB
@@ -41,86 +43,7 @@ from scipy.ndimage import gaussian_filter1d
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# Prompt pairs for the model
-classnames66 = [
-    ['metallic; artificial', 'nonmetallic; natural'],
-    ['food-related', 'non-food-related'],
-    ['animal-related', 'non-animal-related; artificial; inorganic'],
-    ['textile', 'non-textile'],
-    ['plant-related', 'non-plant-related'],
-    ['house-related; furnishing-related',
-    'non-house-related; non-furnishing-related; outdoors-related'],
-    ['valuable; precious', 'non-valuable; inexpensive; cheap'],
-    ['transportation; movement-related', 'non-transportation; movement-related'],
-    ['body; people-related', 'non-body; people-related'],
-    ['wood-related; brown', 'non-wood-related; non-brown'],
-    ['electronics; technology', 'non-electronics; technology'],
-    ['colorful; playful', 'monotone; dull'],
-    ['outdoors', 'non-outdoors'],
-    ['circular; round', 'non-circular; angular'],
-    ['paper-related; flat', 'non-paper-related; bumpy'],
-    ['hobby-related; game-related; playing-related',
-    'non-hobby-related; non-game-related; non-playing-related'],
-    ['tools-related; handheld; elongated',
-    'non-tools-related; non-handheld; shortened'],
-    ['fluid-related; drink-related', 'solid-related; non-fluid-related'],
-    ['water-related', 'dry; non-water-related'],
-    ['oriented; many; plenty', 'non-oriented; few; scarce'],
-    ['powdery; earth-related; waste-related',
-    'non-powdery; non-earth-related; non-waste-related'],
-    ['white', 'black; dark'],
-    ['coarse-scale pattern; many things', 'non-coarse-scalepattern; few; scarce'],
-    ['red', 'non-red'],
-    ['long; thin', 'short; thick'],
-    ['weapon-related; war-related; dangerous',
-    'non-weapon-related; non-war-related; peaceful'],
-    ['black', 'non-black; white'],
-    ['household-related', 'non-household-related'],
-    ['feminine', 'non-feminine; masculine'],
-    ['body-part-related', 'non-body-part-related'],
-    ['tubular', 'non-tubular'],
-    ['music-related; hearing-related; hobby-related; loud',
-    'non-music-related; non-hearing-related; non-hobby-related; silent'],
-    ['grid-related; grating-related', 'non-grid-related; non-grating-related'],
-    ['repetitive; spiky', 'diverse; dull'],
-    ['construction-related; craftsmanship-related; housework-related',
-    'non-physical-work-related'],
-    ['spherical; voluminous', 'angular; small'],
-    ['string-related; stringy; curved', 'non-string-related; straight'],
-    ['seating; standing; lying-related',
-    'non-seating; non-standing; non-lying-related'],
-    ['flying-related; sky-related', 'ground-related; non-flying-related'],
-    ['bug-related; non-mammalian; disgusting',
-    'non-bug-related; mammalian; pleasant'],
-    ['transparent; shiny; crystalline', 'opaque; matte; frosted'],
-    ['sand-colored', 'non-sand-colored'],
-    ['green', 'non-green'],
-    ['bathroom-related; wetness-related', 'non-bathroom-related; dry'],
-    ['yellow', 'non-yellow'],
-    ['heat-related; fire-related; light-related', 'cold-related; dark-related'],
-    ['beams-related; mesh-related', 'non-beams-related; non-mesh-related'],
-    ['foot-related; walking-related', 'non-foot-related; non-walking-related'],
-    ['box-related; container', 'non-box-related; non-container'],
-    ['stick-shaped; container', 'non-stick-shaped; non-container'],
-    ['head-related', 'non-head-related'],
-    ['upright; elongated; volumous', 'non-upright; short; small'],
-    ['pointed; spiky', 'non-pointed; blunt'],
-    ['child-related; toy-related; cute', 'mature; adult-like'],
-    ['farm-related; historical', 'non-farm-related; contemporary'],
-    ['seeing-related', 'non-seeing-related; blind'],
-    ['medicine-related; health-related',
-    'non-medicine-related; non-health-related'],
-    ['sweet; dessert-related', 'non-sweet; non-dessert-related'],
-    ['orange', 'non-orange'],
-    ['thin; flat; wrapping', 'thick; bumpy; non-wrapping'],
-    ['cylindrical; conical; cushioning', 'triangular; angular; hardening'],
-    ['coldness-related; winter-related', 'warmness-related; non-winter-related '],
-    ['measurement-related; numbers-related',
-    'non-measurement-related; non-numerical'],
-    ['fluffy; soft', 'non-fluffy; rough'],
-    ['masculine', 'non-masculine; feminine'],
-    ['fine-grained; pattern', 'non-fine-grained; plain']
-]
+
 def seed_everything(seed):
     # Set the seed for PyTorch's random number generators
     torch.manual_seed(seed)
@@ -513,7 +436,7 @@ def apply_dora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, dor
 
 
 
-def switch_dora_layers(model, freeze_all=True, dora_state=True):
+def switch_dora_layers(model, freeze_all=True, d_state=True, m_state=False):
     """
     Freeze or unfreeze the model's parameters based on the presence of DoRA layers.
     If a DoRALayer is encountered, only its specific DoRA parameters are unfrozen.
@@ -528,9 +451,9 @@ def switch_dora_layers(model, freeze_all=True, dora_state=True):
             for child_name, child in module.named_children():
                 if isinstance(child, DoRALayer):
                     # Unfreeze DoRA-specific parameters within DoRALayer
-                    child.m.requires_grad = dora_state
-                    child.delta_D_A.requires_grad = dora_state
-                    child.delta_D_B.requires_grad = dora_state
+                    child.m.requires_grad = m_state
+                    child.delta_D_A.requires_grad = d_state
+                    child.delta_D_B.requires_grad = d_state
                     # Keep the original layer's parameters frozen
                     if child.bias is not None:
                         child.bias.requires_grad = False
@@ -816,6 +739,7 @@ class PearsonMSELongLoss(nn.Module):
     
 
     def compute_time_generalization(self, rdm):
+        # input shape of rdm: [n_timepoints, n_objects, n_objects]
         def flatten_rdm(rdm):
             triu_indices = torch.triu_indices(rdm.shape[-1], rdm.shape[-1], offset=1)
             return rdm[..., triu_indices[0], triu_indices[1]]
@@ -879,7 +803,7 @@ def train_model(model, train_loader, test_loader, device, criterion, p_weight, m
 
 
     # Initial evaluation
-    torch.save(model.state_dict(), checkpoint_path)
+    # torch.save(model.state_dict(), checkpoint_path)
     print("\n--- Initial Evaluation Starting ---")
     t, m, p, g = evaluate_model(model, test_loader, device, criterion, test_rdms, sample_timepoints, ms_start, ms_end, ms_step, window_size, optimizer)
     best_pearson_loss = p
@@ -1050,183 +974,148 @@ def compute_noise_level (alpha, threshold=0.75, scale = 0.1):
     return noise_level
 
 
-
-if __name__ == '__main__':
-
-
-    ##############################
-    csv_file = "./Data/hebart66_embedding_rescaled_1806train.csv"
-    img_dir = "./Data/Things1854"
-    rdm_dir = "./Data/ThingsMEG_RDMs/ThingsMEG_RDM_4P.npy"
-    n_dim = 66 # options: 49, 66
-    ##############################
-    backbone = 'ViT-L/14' #or options: RN50, ViT-B/32, ViT-B/16, ViT-L/14
-    epochs = 50
-    fw_tuning_epochs = None
-    batch_size = 50
-    train_portion = 1456/1806
-    ms_start, ms_end, ms_step = -100, 1300, 5
-    train_start, train_end, train_step, train_window_size = -100, 1300, 5, 15 # (start, end, step) (total 281 timepoints from -100ms to 1300ms every 5ms) #this is the time window for neural finetuning
-    lr = 5e-5
-    fw_lr= 1e-4
-    stage_1_lr_multiplier = 100
-    early_stopping_patience = 5
-    checkpoint_path = './models/cliphba_dynamic_official_v9_step.pth'
-    random_seed = 1
-    vision_layers = 24
-    transormer_layers = 1
-    cuda = 0 #option, 0,1, -1
-    pretrained_text_encoder = True
-    text_encoder_path = "./models/partial/cliphba_dora66_text_encoder.pth"
-    freeze_text = True
-    p_weight = 1
-    m_weight = 0.1
-    g_weight = 0.15
-    rank = 32
-    noise_scale= 1
-    sample_timepoints = list(range(train_start, train_end+1, train_step))
-    ##############################
-
-    # print each parameter line by line: batch size, learning rate, random seed, p_weight, m_weight, sample_timepoints
-    print(f"Batch size: {batch_size}")
-    print(f"Learning rate: {lr}")
-    print(f"Random seed: {random_seed}")
-    print(f"Pearson Weight: {p_weight}")
-    print(f"MSE Weight: {m_weight}")
-    print(f"Generalization Weight: {g_weight}")
-    print(f"Sample Timepoints: {len(sample_timepoints)}")
-
-    print(f"\nModel will be saved at: {checkpoint_path}\n")
-
-
+def run_meg_training_group(config):
+    """
+    Run MEG training with the given configuration.
     
-    # set random seed for the entire pipeline
-    seed_everything(random_seed)
+    Args:
+        config (dict): Configuration dictionary containing training parameters
+    """
+    # Set random seed
+    seed_everything(config['random_seed'])
 
+    # Initialize classnames
     classnames = classnames66
-    classnames = [x[0] for x in classnames]
 
-    dataset = DynamicDataset(csv_file=csv_file, img_dir=img_dir, rdm_dir=rdm_dir)
+    # Load dataset
+    dataset = DynamicDataset(csv_file=config['csv_file'], 
+                            img_dir=config['img_dir'], 
+                            rdm_dir=config['rdm_dir'])
     rdms = dataset.rdms
-
     print(f"RDMs shape: {rdms.shape}")
 
-    # define curves
-    n_timepoints = len(sample_timepoints)
-    zero_ms_position = (0 - ms_start) // ms_step + 1
+    # Define curves
+    sample_timepoints = list(range(config['train_start'], 
+                                 config['train_end']+1, 
+                                 config['train_step']))
+    zero_ms_position = (0 - config['ms_start']) // config['ms_step'] + 1
     beta = compute_rdm_generalization(rdms, zero_ms_position)
-    # beta[:zero_ms_position] = 0
     alpha = get_richness(rdms, zero_ms_position)
-    # alpha[:zero_ms_position] = 0
+    noise_level = compute_noise_level(beta, scale=config['noise_scale'])
 
-    noise_level = compute_noise_level(beta, scale=noise_scale)
-
-    # plot richness, noise_level, visual_scaler
-    plt.plot(sample_timepoints, beta, label='beta')
-    plt.plot(sample_timepoints, noise_level, label='Noise Level')
-    plt.plot(sample_timepoints, alpha, label='Visual Scaler')
-    plt.legend()
-    plt.savefig('./curves/things_group_curves.png')
-
-    # Split the dataset into training and testing
-    train_size = int(train_portion * len(dataset))
+    # Split dataset
+    train_size = int(config['train_portion'] * len(dataset))
     test_size = len(dataset) - train_size
     print(f"\nTrain size: {train_size}, Test size: {test_size}\n")
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # Create data loaders
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
     
-    if backbone == 'RN50':
-        pos_embedding = False
-    if backbone == 'ViT-B/16' or backbone == 'ViT-B/32' or backbone == 'ViT-L/14': 
-        pos_embedding = True
-
-    
-    weighting_matrix = None
+    # Set position embedding based on backbone
+    pos_embedding = False if config['backbone'] == 'RN50' else True
     
     # Initialize model
-    model = CLIPHBA(classnames=classnames, weighting_matrix=weighting_matrix, backbone_name=backbone, pos_embedding=pos_embedding, ms_start=ms_start, ms_step=ms_step, ms_end=ms_end, train_start=train_start, train_step=train_step, train_end=train_end, train_window_size=train_window_size, beta=beta, noise_level=noise_level, visual_scaler=alpha)
+    model = CLIPHBA(classnames=classnames, 
+                    weighting_matrix=None,
+                    backbone_name=config['backbone'], 
+                    pos_embedding=pos_embedding,
+                    ms_start=config['ms_start'],
+                    ms_step=config['ms_step'],
+                    ms_end=config['ms_end'],
+                    train_start=config['train_start'],
+                    train_step=config['train_step'],
+                    train_end=config['train_end'],
+                    train_window_size=config['train_window_size'],
+                    beta=beta,
+                    noise_level=noise_level,
+                    visual_scaler=alpha)
 
-    assert model.clip_model.weighting_matrix.shape[0] == model.clip_model.noise_level.shape[0] == model.clip_model.beta.shape[0] == model.clip_model.visual_scaler.shape[0] == len(sample_timepoints), f"Weighting matrix shape mismatch\n {model.clip_model.weighting_matrix.shape[0]} != {model.clip_model.noise_level.shape[0]} != {model.clip_model.beta.shape[0]} != {model.clip_model.visual_scaler.shape[0]} != {len(sample_timepoints)}"
+    # Verify model dimensions
+    assert model.clip_model.weighting_matrix.shape[0] == len(sample_timepoints), \
+        "Weighting matrix shape mismatch"
 
-    # Move the model to GPU
-    if cuda == -1:
+    # Set device
+    if config['cuda'] == -1:
         device = torch.device("cuda")
         print(f"Using {torch.cuda.device_count()} GPUs")
-    elif cuda == 0:
+    elif config['cuda'] == 0:
         device = torch.device("cuda:0")
         print("Using GPU 0")
-    elif cuda == 1:
+    elif config['cuda'] == 1:
         device = torch.device("cuda:1")
         print("Using GPU 1")
     else:
         device = torch.device("cpu")
         print("Using CPU")
 
-
-    # apply_lora_to_ViT(model, n_vision_layers=vision_layers, n_transformer_layers=transormer_layers, r=16, lora_dropout=0.1, seed=random_seed)
-    # switch_lora_layers(model, freeze_all=True, lora_state=True)
-    # unfreeze_weighting_parameters(model)
-
-    # apply_lora_to_ViT(model, n_vision_layers=0, n_transformer_layers=transormer_layers, r=16, lora_dropout=0.1, seed=random_seed)
-    apply_dora_to_ViT(model, n_vision_layers=vision_layers, n_transformer_layers=transormer_layers, r=rank, dora_dropout=0.1, seed=random_seed)
-    switch_dora_layers(model, freeze_all=True, dora_state=True)
+    # Apply DoRA
+    apply_dora_to_ViT(model, 
+                      n_vision_layers=0, 
+                      n_transformer_layers=config['transformer_layers'],
+                      r=32,
+                      dora_dropout=0.1,
+                      seed=config['random_seed'])
+    apply_dora_to_ViT(model,
+                      n_vision_layers=config['vision_layers'],
+                      n_transformer_layers=0,
+                      r=config['rank'],
+                      dora_dropout=0.1,
+                      seed=config['random_seed'])
+    
+    switch_dora_layers(model, 
+                      freeze_all=True,
+                      d_state=config['dora_d_state'],
+                      m_state=config['dora_m_state'])
     unfreeze_weighting_parameters(model)
 
-
-
-    if pretrained_text_encoder:
-        print(f"Loading pretrained model: {text_encoder_path}")
-        model_state_dict = torch.load(text_encoder_path)
-        adjusted_state_dict = {key.replace("module.", ""): value for key, value in model_state_dict.items()}
-        # Load the state dict into the model with strict=False
-        missing_keys, unexpected_keys = model.load_state_dict(adjusted_state_dict, strict=False)
-        # Print out any keys in the state dict that were not loaded by the model
-        model_keys = set(model.state_dict().keys())
-        loaded_keys = set(adjusted_state_dict.keys())
-        not_loaded_keys = loaded_keys - model_keys
+    # Load pretrained text encoder if specified
+    if config['pretrained_text_encoder']:
+        print(f"Loading pretrained model: {config['text_encoder_path']}")
+        model_state_dict = torch.load(config['text_encoder_path'])
+        adjusted_state_dict = {key.replace("module.", ""): value 
+                             for key, value in model_state_dict.items()}
+        model.load_state_dict(adjusted_state_dict, strict=False)
         
-        if not_loaded_keys != set():
-            print(f"Text Encoder State Dict Keys not loaded: {not_loaded_keys}")
-        else:
-            print("Pretrained Text Encoder loaded successfully\n")
-        
-    if freeze_text:
+    if config['freeze_text']:
         freeze_text_encoder(model)
         print("Model text encoder frozen\n")
 
-    else:
-        print("Model is not pretrained with text encoder\n")
+    if config['cuda'] == -1:
+        model = DataParallel(model)
+    model.to(device)
 
-    if cuda == -1:
-       print(f"Using {torch.cuda.device_count()} GPUs")
-       model = DataParallel(model)
-
-    model.to(device)  # Move model to GPU if available
-
-    # optimizer = AdamW(model.parameters(), lr=lr)
-    # Define optimizer with separate learning rates
+    # Initialize optimizers
     optimizer_0 = AdamW([
-        {'params': [p for n, p in model.named_parameters() if n != 'clip_model.weighting_matrix'], 'lr': 0},  # Default learning rate
-        {'params': [model.clip_model.weighting_matrix], 'lr': fw_lr * stage_1_lr_multiplier}  # Higher learning rate for weighting_matrix
+        {'params': [p for n, p in model.named_parameters() 
+                   if n != 'clip_model.weighting_matrix'], 'lr': config['lr_1']},
+        {'params': [model.clip_model.weighting_matrix], 'lr': config['fw_lr_1']}
     ])
 
     optimizer_1 = AdamW([
-        {'params': [p for n, p in model.named_parameters() if n != 'clip_model.weighting_matrix'], 'lr': lr},  # Default learning rate
-        {'params': [model.clip_model.weighting_matrix], 'lr': fw_lr}  # Higher learning rate for weighting_matrix
+        {'params': [p for n, p in model.named_parameters() 
+                   if n != 'clip_model.weighting_matrix'], 'lr': config['lr_2']},
+        {'params': [model.clip_model.weighting_matrix], 'lr': config['fw_lr_2']}
     ])
 
-    criterion = PearsonMSELongLoss(p_weight=p_weight, m_weight=m_weight, g_weight=g_weight)
+    criterion = PearsonMSELongLoss(p_weight=config['p_weight'],
+                                  m_weight=config['m_weight'],
+                                  g_weight=config['g_weight'])
 
+    # Print training information
     print("Updating layers:")
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(name)
-    print(f"Number of trainable parameters: {count_trainable_parameters(model)}\n\n")
+    print(f"Number of trainable parameters: {count_trainable_parameters(model)}\n")
 
-    sample_timepoints = list(range(train_start, train_end+1, train_step))
-
-
-    # print(model)
-    train_model(model, train_loader, test_loader, device, criterion, p_weight, m_weight, g_weight, optimizer_0, optimizer_1, epochs, fw_tuning_epochs, rdms, sample_timepoints, ms_start, ms_end, ms_step, train_window_size, early_stopping_patience, checkpoint_path)
+    # Train model
+    train_model(model, train_loader, test_loader, device,
+                criterion, config['p_weight'], config['m_weight'], config['g_weight'],
+                optimizer_0, optimizer_1, config['epochs'],
+                config['fw_tuning_epochs'], rdms, sample_timepoints,
+                config['ms_start'], config['ms_end'], config['ms_step'],
+                config['train_window_size'],
+                config['early_stopping_patience'],
+                config['checkpoint_path'])
