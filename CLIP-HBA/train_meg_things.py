@@ -28,13 +28,13 @@ import torch.optim as optim
 
 import sys
 sys.path.append('../')
-from mmedit.models.backbones.sr_backbones.rrdb_net import RRDB
-from mmedit.models.builder import build_component
-from mmedit.models.common import PixelShufflePack, make_layer
-from mmedit.models.registry import BACKBONES
-from mmedit.utils import get_root_logger
-from mmedit.models.components.clip_hba_dynamic_3d import clip
-from mmedit.models.components.clip_hba_dynamic_3d.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from src.models.backbones.sr_backbones.rrdb_net import RRDB
+from src.models.builder import build_component
+from src.models.common import PixelShufflePack, make_layer
+from src.models.registry import BACKBONES
+from src.utils import get_root_logger
+from src.models.components.clip_hba_dynamic_3d import clip
+from src.models.components.clip_hba_dynamic_3d.simple_tokenizer import SimpleTokenizer as _Tokenizer
 import torch.nn.utils as utils
 from scipy.ndimage import gaussian_filter1d
 
