@@ -153,3 +153,5 @@ mmedit/.mim
 !/CLIP-HBA/Data/words48.mat
 
 /CLIP-HBA/models/cliphba_meg_individual_test/
+/CLIP-HBA/data/imagenet/
+/CLIP-HBA/data/imagenet/*

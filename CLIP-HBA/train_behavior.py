@@ -12,7 +12,7 @@ def main():
         'train_portion': 0.8,
         'lr': 3e-4, # learning rate
         'early_stopping_patience': 20, # early stopping patience
-        'checkpoint_path': './models/cliphba_dora66_test.pth', # path to save the trained model weights
+        'checkpoint_path': './models/cliphba_behavior_test.pth', # path to save the trained model weights
         'random_seed': 1, # random seed, default CLIP-HBA is 1
         'vision_layers': 2, # Last n ViT layers of the model to be trained, default CLIP-HBA-Behavior is 2
         'transformer_layers': 1, # Last n transformer layers to be trained, default CLIP-HBA-Behavior is 1
