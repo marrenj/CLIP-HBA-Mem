@@ -151,3 +151,5 @@ mmedit/.mim
 !/CLIP-HBA/Data/RDM48_triplet.mat
 !/CLIP-HBA/Data/triplet48_index.npy
 !/CLIP-HBA/Data/words48.mat
+
+/CLIP-HBA/models/cliphba_meg_individual_test/
