@@ -120,4 +120,4 @@ python /CLIP-HBA/inference_meg_individual.py
 Download Things-MEG Data from [here](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
 
 ## Things Image Set
-Things Things Image Dataset can be downloaded from [here](https://osf.io/jum2f/)
+Things Image Dataset can be downloaded from [here](https://osf.io/jum2f/)
