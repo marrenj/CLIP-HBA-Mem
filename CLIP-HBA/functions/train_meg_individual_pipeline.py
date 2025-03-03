@@ -1,6 +1,5 @@
 from functions.train_meg_things_pipeline import *
 import shutil
-from scipy.interpolate import interp1d
 
 def smoothen_rdm(rdm_array, window = 5):
     # Keep the first timepoint's RDM as is

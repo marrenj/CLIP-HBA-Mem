@@ -1,51 +1,28 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import os
-import torchvision.models as models
 import numpy as np
-import mmcv
-from mmcv.runner import load_checkpoint
-from mmcv.runner.checkpoint import _load_checkpoint_with_prefix
 
 from torch.nn import functional as F
-import copy
 from tqdm import tqdm
 
-from torch.optim import Adam, SGD, AdamW
-from torch.nn import DataParallel
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-from sklearn.model_selection import KFold
-from torch.utils.data import Subset
 import random
 import math
-import torch.optim as optim
 
 from functions.spose_dimensions import *
 
 import sys
 sys.path.append('../')
-from src.models.backbones.sr_backbones.rrdb_net import RRDB
-from src.models.builder import build_component
-from src.models.common import PixelShufflePack, make_layer
-from src.models.registry import BACKBONES
-from src.utils import get_root_logger
-from src.models.components.clip_hba_dynamic_3d import clip
-from src.models.components.clip_hba_dynamic_3d.simple_tokenizer import SimpleTokenizer as _Tokenizer
-import torch.nn.utils as utils
-from scipy.ndimage import gaussian_filter1d
+from src.models.CLIPs.clip_hba_meg import clip
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-import inspect
 import pandas as pd
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
 import shutil
@@ -54,10 +31,6 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import torch
-from torch.nn import DataParallel
-from sklearn.metrics.pairwise import cosine_similarity
-from scipy.spatial.distance import pdist, squareform
-import h5py
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 

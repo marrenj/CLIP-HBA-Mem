@@ -32,12 +32,12 @@ The integration of human and artificial intelligence represents a scientific opp
 
 ```
 ├───CLIP-HBA
-│   ├───Data # Location for training data and annotations
+│   ├───Data # Location for data and annotations
 │   │   
-│   ├───figures
-│   ├───functions # source code for training and inference pipelines
+│   ├───figures # Used for figure generation
+│   ├───functions # Source code for training and inference pipelines
 │   │   
-│   ├───models
+│   ├───models # Location for pre-trained/fine-tuned model weights (.pth files)
 │   │   ├───cliphba_behavior_text_encoder # partial text encoder model weights for the CLIP-HBA-Behavior model, for MEG training
 │   │   ├───cliphba_meg_individual # Individual model weights
 │   
@@ -53,14 +53,11 @@ The integration of human and artificial intelligence represents a scientific opp
 # Environment Setup:
 
 ```
-conda create -n cliphba python=3.8.18
+conda create -n cliphba python=3.11
 conda activate cliphba
 
-conda install pytorch=1.10.2 torchvision cudatoolkit=11.3 -c pytorch
-
-pip install openmim
-mim install mmcv-full==1.5.0
-pip install -r requirements.txt
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip3 install -r requirements.txt
 ```
 
 download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/file/d/1_X9w3ttJt419gb8hosBbHSbG3WwRQ2GW/view?usp=share_link)

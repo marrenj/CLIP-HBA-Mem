@@ -1,7 +1,4 @@
 from functions.train_meg_individual_pipeline import  *
-import inspect
-import pandas as pd
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
 import shutil
@@ -10,7 +7,6 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import torch
-import h5py
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 

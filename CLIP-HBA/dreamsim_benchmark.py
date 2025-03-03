@@ -1,11 +1,8 @@
 from functions.train_behavior_things_pipeline import *
 
 import torch
-import os
 from tqdm import tqdm
 import logging
-import numpy as np
-import json
 import torch.nn.functional as F
 
 import sys
@@ -60,12 +57,12 @@ def triplet_forward(img_ref, image_left):
 if __name__ == '__main__':
     ##############################
     load_hba = True
-    batch_size = 256
+    batch_size = 64
     ##############################
 
     classnames=classnames66
     classnames = [x[0] for x in classnames]
-    model_path = f'./models/cliphba_dora66.pth'
+    model_path = f'./models/cliphba_behavior.pth'
     root_dir = "../../dreamsim_benchmark/dreamsim/dataset/nights"
     val_dataset = TwoAFCDataset(root_dir, split = 'val', load_size = 224, preprocess = 'CLIP-HBA')
     test_dataset = TwoAFCDataset(root_dir, split = 'test', load_size = 224, preprocess = 'CLIP-HBA')
