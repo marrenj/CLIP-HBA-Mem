@@ -60,7 +60,7 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install -r requirements.txt
 ```
 
-download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/file/d/1_X9w3ttJt419gb8hosBbHSbG3WwRQ2GW/view?usp=share_link)
+download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs)
 
 
 # Running the Model
