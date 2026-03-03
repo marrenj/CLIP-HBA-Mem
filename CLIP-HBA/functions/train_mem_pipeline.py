@@ -54,20 +54,16 @@ class MemDataset(Dataset):
 
 
 class CLIPHBAMem(nn.Module):
-    """Frozen CLIP-HBA backbone + ResMem-style MLP head for memorability prediction.
+    """Frozen CLIP-HBA backbone + PerceptCLIP-style MLP head for memorability prediction.
 
-    The backbone produces a 66-dim cosine-similarity vector (one score per SPOSE
-    semantic dimension). The MLP head is a proportionally-scaled adaptation of
-    ResMem's FC6–FC12 layers for a 66-dim input.
+    The backbone's CLIP image encoder produces a 768-dim projected embedding
+    (encode_image output for ViT-L/14). The MLP head is PerceptCLIP's exact
+    architecture applied to this embedding.
 
-    Architecture (mirrors ResMem layer structure and dropout placement):
-        FC6:  Linear(66  → 256) + ReLU + Dropout(0.5)
-        FC7:  Linear(256 → 256) + ReLU + Dropout(0.5)
-        FC8:  Linear(256 → 128) + ReLU
-        FC9:  Linear(128 → 64)  + ReLU
-        FC10: Linear(64  → 32)  + ReLU
-        FC11: Linear(32  → 16)  + ReLU
-        FC12: Linear(16  → 1)   + Sigmoid
+    Architecture:
+        FC1:  Linear(768 → 512) + ReLU + Dropout(0.5)
+        FC2:  Linear(512 → 256) + ReLU + Dropout(0.5)
+        FC3:  Linear(256 → 1)   + Sigmoid
     """
 
     def __init__(self, backbone_checkpoint, backbone_name='ViT-L/14',
@@ -92,16 +88,13 @@ class CLIPHBAMem(nn.Module):
         for p in self.backbone.parameters():
             p.requires_grad = False
 
-        # --- MLP head (ResMem FC6–FC12, scaled for 66-dim input) ---
-        self.fc6  = nn.Linear(66, 256)
-        self.drp6 = nn.Dropout(0.5)
-        self.fc7  = nn.Linear(256, 256)
-        self.drp7 = nn.Dropout(0.5)
-        self.fc8  = nn.Linear(256, 128)
-        self.fc9  = nn.Linear(128, 64)
-        self.fc10 = nn.Linear(64, 32)
-        self.fc11 = nn.Linear(32, 16)
-        self.fc12 = nn.Linear(16, 1)
+        # --- MLP head (PerceptCLIP-style, exact: 768-dim CLIP embedding input) ---
+        self.fc1     = nn.Linear(768, 512)
+        self.relu1   = nn.ReLU()
+        self.dropout = nn.Dropout(0.5)
+        self.fc2     = nn.Linear(512, 256)
+        self.relu2   = nn.ReLU()
+        self.fc3     = nn.Linear(256, 1)
 
     def train(self, mode=True):
         super().train(mode)
@@ -111,20 +104,15 @@ class CLIPHBAMem(nn.Module):
 
     def forward(self, x):
         with torch.no_grad():
-            emb = self.backbone(x)          # [B, 66]
+            emb = self.backbone.clip_model.encode_image(x)  # [B, 768]
 
-        h = F.relu(self.fc6(emb));  h = self.drp6(h)
-        h = F.relu(self.fc7(h));    h = self.drp7(h)
-        h = F.relu(self.fc8(h))
-        h = F.relu(self.fc9(h))
-        h = F.relu(self.fc10(h))
-        h = F.relu(self.fc11(h))
-        return torch.sigmoid(self.fc12(h))  # [B, 1]
+        h = self.fc1(emb);  h = self.relu1(h);  h = self.dropout(h)
+        h = self.fc2(h);    h = self.relu2(h);  h = self.dropout(h)
+        return torch.sigmoid(self.fc3(h))  # [B, 1]
 
     def mlp_parameters(self):
         """Returns only the MLP head parameters (used by the optimiser)."""
-        head_names = {'fc6', 'drp6', 'fc7', 'drp7',
-                      'fc8', 'fc9', 'fc10', 'fc11', 'fc12'}
+        head_names = {'fc1', 'relu1', 'dropout', 'fc2', 'relu2', 'fc3'}
         return [p for n, p in self.named_parameters()
                 if n.split('.')[0] in head_names]
 
