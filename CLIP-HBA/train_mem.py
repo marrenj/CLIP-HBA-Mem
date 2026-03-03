@@ -20,7 +20,6 @@ def main():
         'epochs':                   50,
         'batch_size':               64,
         'lr':                       1e-4,
-        'momentum':                 0.9,
         'early_stopping_patience':  10,
         'checkpoint_path':          './models/clip_hba_mem.pth',
         'random_seed':              1,

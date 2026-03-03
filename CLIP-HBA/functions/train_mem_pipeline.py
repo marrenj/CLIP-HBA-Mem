@@ -220,9 +220,8 @@ def run_mem_training(config):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    optimizer = torch.optim.SGD(model.mlp_parameters(),
-                                lr=config['lr'],
-                                momentum=config['momentum'])
+    optimizer = torch.optim.AdamW(model.mlp_parameters(),
+                                  lr=config['lr'])
 
     print('\nModel Configuration:')
     print('--------------------')
