@@ -35,8 +35,8 @@ class MemDataset(Dataset):
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
-                                 std=[0.27608301, 0.26593025, 0.28238822]),
+            transforms.Normalize(mean=[0.48145466, 0.4578275,  0.40821073],
+                                 std=[0.26862954, 0.26130258, 0.27577711]),
         ])
         self.annotations = pd.read_csv(csv_file)
 
@@ -142,7 +142,8 @@ def evaluate_mem_model(model, data_loader, device, criterion):
 
     avg_loss = total_loss / len(data_loader.dataset)
     rho, _ = spearmanr(all_preds, all_targets)
-    return avg_loss, rho
+    pred_std = float(np.std(all_preds))
+    return avg_loss, rho, pred_std
 
 
 def train_mem_model(model, train_loader, val_loader, device, optimizer, criterion,
@@ -155,8 +156,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     # Initial evaluation
     print('*' * 40)
     print('Initial evaluation')
-    best_val_loss, rho = evaluate_mem_model(model, val_loader, device, criterion)
-    print(f'Val MSE: {best_val_loss:.4f}  |  Spearman ρ: {rho:.4f}')
+    best_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion)
+    print(f'Val MSE: {best_val_loss:.4f}  |  Spearman ρ: {rho:.4f}  |  Pred std: {pred_std:.4f}')
     print('*' * 40 + '\n')
 
     for epoch in range(epochs):
@@ -178,12 +179,13 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                 pbar.set_postfix({'loss': loss.item()})
 
         avg_train_loss = total_loss / len(train_loader.dataset)
-        avg_val_loss, rho = evaluate_mem_model(model, val_loader, device, criterion)
+        avg_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion)
 
         print(f'Epoch {epoch+1}: '
               f'Train MSE: {avg_train_loss:.4f}  |  '
               f'Val MSE: {avg_val_loss:.4f}  |  '
-              f'Spearman ρ: {rho:.4f}')
+              f'Spearman ρ: {rho:.4f}  |  '
+              f'Pred std: {pred_std:.4f}')
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
