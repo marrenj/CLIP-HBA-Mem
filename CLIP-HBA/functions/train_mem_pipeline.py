@@ -253,6 +253,20 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
         history_file.close()
 
 
+def _seed_worker(worker_id):
+    """Seed numpy/random in each DataLoader worker for reproducibility.
+
+    PyTorch automatically sets each worker's torch seed to base_seed + worker_id
+    (where base_seed comes from the DataLoader's generator).  We mirror that seed
+    into numpy and Python's random module so any per-worker augmentations or
+    sampling is also reproducible.
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    import random as _random
+    _random.seed(worker_seed)
+
+
 def run_mem_training(config):
     """Run memorability training with the given configuration dict."""
     log_path = config.get('log_path', None)
@@ -279,8 +293,11 @@ def run_mem_training(config):
     scores = train_dataset.annotations['score']
     print(f'\n[Data] Score range: min {scores.min():.4f} to max {scores.max():.4f}')
  
+    _g = torch.Generator()
+    _g.manual_seed(config['random_seed'])
     train_loader = DataLoader(train_dataset, batch_size=config['batch_size'],
-                              shuffle=True, num_workers=4, pin_memory=True)
+                              shuffle=True, num_workers=4, pin_memory=True,
+                              generator=_g, worker_init_fn=_seed_worker)
     val_loader   = DataLoader(val_dataset,   batch_size=config['batch_size'],
                               shuffle=False, num_workers=4, pin_memory=True)
     test_loader   = DataLoader(test_dataset,   batch_size=config['batch_size'],

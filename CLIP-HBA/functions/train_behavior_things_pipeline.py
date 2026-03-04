@@ -25,6 +25,10 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def seed_everything(seed):
+    # Required for deterministic cuBLAS (nn.Linear on CUDA); must be set before
+    # any CUDA operations are performed.
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
     # Set the seed for PyTorch's random number generators
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
