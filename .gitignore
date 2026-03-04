@@ -155,3 +155,7 @@ mmedit/.mim
 /CLIP-HBA/models/cliphba_meg_individual_test/
 /CLIP-HBA/data/imagenet/
 /CLIP-HBA/data/imagenet/*
+/CLIP-HBA/data/lamem/
+/CLIP-HBA/data/lamem/*
+/CLIP-HBA/models/
+/CLIP-HBA/models/*

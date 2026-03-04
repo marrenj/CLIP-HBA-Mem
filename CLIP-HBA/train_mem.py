@@ -4,6 +4,7 @@ import torch.nn as nn
 def main():
     config = {
         # --- Data ---
+        'fold':      1,                                       # 1, 2, 3, 4, 5
         'train_csv': './Data/lamem/lamem_train_1.csv',   # columns: image_path, score
         'val_csv':   './Data/lamem/lamem_val_1.csv',     # columns: image_path, score
         'test_csv':  './Data/lamem/lamem_test_1.csv',    # columns: image_path, score
@@ -17,14 +18,14 @@ def main():
         'rank':                32,
 
         # --- Device ---
-        'cuda':                     0,   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
+        'cuda':                     1,   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
         # --- Training ---
         'epochs':                   300,
         'batch_size':               32,
         'lr':                       5e-5,
-        'early_stopping_patience':  20,
-        'checkpoint_path':          './models/clip_hba_mem.pth',
+        'early_stopping_patience':  10,
+        'checkpoint_path':          './models/clip_hba_mem',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }
