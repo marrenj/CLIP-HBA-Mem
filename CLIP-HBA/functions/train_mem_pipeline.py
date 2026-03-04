@@ -84,9 +84,12 @@ class CLIPHBAMem(nn.Module):
         # Strip DataParallel 'module.' prefix if present
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
         self.backbone.load_state_dict(state_dict)
+        print(f'[Backbone] Loaded {len(state_dict)} keys from: {backbone_checkpoint}')
 
         for p in self.backbone.parameters():
             p.requires_grad = False
+        n_frozen = sum(1 for p in self.backbone.parameters())
+        print(f'[Backbone] {n_frozen} parameter tensors frozen')
 
         # --- MLP head (PerceptCLIP-style, exact: 768-dim CLIP embedding input) ---
         self.fc1     = nn.Linear(768, 512)
@@ -204,6 +207,13 @@ def run_mem_training(config):
     val_dataset   = MemDataset(csv_file=config['val_csv'],
                                img_root=config.get('img_root', ''))
 
+    print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples')
+    img0, score0 = train_dataset[0]
+    print(f'[Data] Sample image tensor shape: {tuple(img0.shape)}')   # expect (3, 224, 224)
+    print(f'[Data] Sample score: {score0.item():.4f}')
+    scores = train_dataset.annotations['score']
+    print(f'[Data] Score range — min: {scores.min():.4f}, max: {scores.max():.4f}, mean: {scores.mean():.4f}')
+
     train_loader = DataLoader(train_dataset, batch_size=config['batch_size'],
                               shuffle=True,  num_workers=4, pin_memory=True)
     val_loader   = DataLoader(val_dataset,   batch_size=config['batch_size'],
@@ -219,6 +229,17 @@ def run_mem_training(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
+
+    print('\n[Model] Probe forward pass...')
+    model.eval()
+    with torch.no_grad():
+        _dummy = torch.randn(2, 3, 224, 224).to(device)
+        _emb   = model.backbone.clip_model.encode_image(_dummy)
+        print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')   # expect (2, 768)
+        _out   = model(_dummy)
+        print(f'[Model] MLP output shape:          {tuple(_out.shape)}')   # expect (2, 1)
+        print(f'[Model] Output range:              [{_out.min().item():.4f}, {_out.max().item():.4f}]')
+    model.train()
 
     optimizer = torch.optim.AdamW(model.mlp_parameters(),
                                   lr=config['lr'])
