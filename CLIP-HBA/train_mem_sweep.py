@@ -7,7 +7,7 @@ Usage
 
 Edit BASE_CONFIG (data paths, backbone, device) and SWEEP_GRID (search space)
 below before running.  All 48 combinations are evaluated sequentially on fold 1
-using 20 % of the training data and early-stopping patience of 5, so each run
+using 20 % of the training data and early-stopping patience of 10, so each run
 is much faster than a full training run.  After the sweep, re-train the winning
 config on the full training set (train_fraction=1.0, patience=10) across all 5
 folds to get final performance numbers.
@@ -53,7 +53,7 @@ BASE_CONFIG = {
 
     # Fixed training settings for the sweep
     'epochs':                  300,
-    'early_stopping_patience': 5,    # shorter than final training (10) to speed up sweep
+    'early_stopping_patience': 10,   # match final training patience; 5 was too aggressive
     'train_fraction':          0.2,  # subsample 20 % of training data per run
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
