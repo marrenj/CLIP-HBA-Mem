@@ -58,8 +58,6 @@ BASE_CONFIG = {
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
 
-    # Checkpoints written here during sweep (overwritten each run — not for production use)
-    'checkpoint_path': './models/sweep/clip_hba_mem_sweep',
 }
 
 # ---------------------------------------------------------------------------
@@ -80,7 +78,6 @@ SWEEP_DIR = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
 def run_sweep():
     os.makedirs(SWEEP_DIR, exist_ok=True)
-    os.makedirs(BASE_CONFIG['checkpoint_path'], exist_ok=True)
 
     # Keep a reference to the real stdout so sweep progress is always visible
     # even though run_mem_training redirects stdout to a per-run log file.
@@ -112,8 +109,17 @@ def run_sweep():
         config = {
             **BASE_CONFIG,
             **params,
-            'log_path': os.path.join(run_dir, 'log.txt'),
+            'log_path':        os.path.join(run_dir, 'log.txt'),
+            'checkpoint_path': os.path.join(run_dir, 'checkpoint'),
         }
+
+        # Dump a human-readable config so each run folder is self-contained
+        import json
+        with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
+            json.dump(
+                {k: str(v) for k, v in config.items() if k != 'criterion'},
+                _f, indent=2,
+            )
 
         try:
             best_rho = run_mem_training(config)
