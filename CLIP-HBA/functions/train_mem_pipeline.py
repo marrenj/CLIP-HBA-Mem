@@ -65,7 +65,7 @@ class CLIPHBAMem(nn.Module):
     Architecture:
         FC1:  Linear(768 → 512) + ReLU + Dropout(0.5)
         FC2:  Linear(512 → 256) + ReLU + Dropout(0.5)
-        FC3:  Linear(256 → 1)   + Sigmoid
+        FC3:  Linear(256 → 1)   + Sigmoid → squeeze to [B]
     """
 
     def __init__(self, backbone_checkpoint, backbone_name='ViT-L/14',
@@ -115,7 +115,7 @@ class CLIPHBAMem(nn.Module):
  
         h = self.fc1(emb);  h = self.relu1(h);  h = self.dropout(h)
         h = self.fc2(h);    h = self.relu2(h);  h = self.dropout(h)
-        return torch.sigmoid(self.fc3(h))  # [B, 1]
+        return torch.sigmoid(self.fc3(h)).squeeze(1)  # [B]
 
     def mlp_parameters(self):
         """Returns only the MLP head parameters (used by the optimiser)."""
@@ -334,7 +334,7 @@ def run_mem_training(config):
         _emb   = model.backbone.clip_model.encode_image(_dummy_image, model.backbone.pos_embedding)
         print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')   # expect (2, 768)
         _out   = model(_dummy_image)
-        print(f'[Model] MLP output shape:          {tuple(_out.shape)}')   # expect (2, 1)
+        print(f'[Model] MLP output shape:          {tuple(_out.shape)}')   # expect (2,)
         print(f'[Model] Output range:              [{_out.min().item():.4f}, {_out.max().item():.4f}]')
     model.train()
 
