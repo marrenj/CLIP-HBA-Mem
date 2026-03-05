@@ -150,11 +150,12 @@ class CLIPHBAMem(nn.Module):
     Architecture:
         FC1:  Linear(768 → 512) + ReLU + Dropout(0.5)
         FC2:  Linear(512 → 256) + ReLU + Dropout(0.5)
-        FC3:  Linear(256 → 1)   + Sigmoid
+        FC3:  Linear(256 → 1) → squeeze to [B]
     """
 
     def __init__(self, backbone_checkpoint, backbone_name='ViT-L/14',
-                 vision_layers=2, transformer_layers=1, rank=32):
+                 vision_layers=2, transformer_layers=1, rank=32, ,
+                 hidden_dims=(512, 256), dropout_rate=0.5):
         super().__init__()
  
         # --- Frozen CLIP-HBA backbone ---
@@ -177,10 +178,10 @@ class CLIPHBAMem(nn.Module):
         for p in self.backbone.parameters():
             p.requires_grad = False
         n_frozen = sum(1 for p in self.backbone.parameters() if not p.requires_grad)
-        print(f'[Backbone] {n_frozen} parameters frozen')
+        print(f'[Backbone] {n_frozen} tensors frozen')
 
 
-        # --- MLP head (PerceptCLIP-style + sigmoid) ---
+        # --- MLP head (PerceptCLIP-style) ---
         self.fc1     = nn.Linear(768,  512)
         self.relu1   = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
@@ -196,11 +197,12 @@ class CLIPHBAMem(nn.Module):
 
     def forward(self, x):
         with torch.no_grad():
-            emb = self.backbone.clip_model.encode_image(x, self.backbone.pos_embedding)
+            emb = self.backbone.clip_model.encode_image(x, self.backbone.pos_embedding) # [B, 768]
  
         h = self.fc1(emb);  h = self.relu1(h);  h = self.dropout(h)
         h = self.fc2(h);    h = self.relu2(h);  h = self.dropout(h)
-        return torch.sigmoid(self.fc3(h))  # [B, 1]
+        h = self.fc3(h)
+        return h  # [B, 1]
 
     def mlp_parameters(self):
         """Returns only the MLP head parameters (used by the optimiser)."""
@@ -222,24 +224,25 @@ def evaluate_mem_model(model, data_loader, device, criterion, save_csv_path=None
             images  = images.to(device)
             targets = targets.to(device)
  
-            preds = model(images)
+            preds = model(images).squeeze(1) # [B]
             loss  = criterion(preds, targets)
             total_loss += loss.item() * images.size(0)
  
-            all_preds.extend(preds.cpu().numpy().flatten())
-            all_targets.extend(targets.cpu().numpy().flatten())
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(targets.cpu().numpy())
             all_image_paths.extend(image_paths)
             pbar.set_postfix({'loss': loss.item()})
  
     avg_loss = total_loss / len(data_loader.dataset)
     rho, _ = spearmanr(all_preds, all_targets)
+    pred_std = float(np.std(all_preds))
 
     pd.DataFrame({
         'image_path': all_image_paths,
         'pred_score': all_preds,
         'true_score': all_targets,
     }).to_csv(save_csv_path, index=False)
-    return avg_loss, rho
+    return avg_loss, rho, pred_std
 
 
 def train_mem_model(model, train_loader, val_loader, device, optimizer, criterion,
@@ -257,11 +260,11 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
 
     model.train()
     best_val_loss = float('inf')
-    best_rho = float('-inf')
+    # best_rho = float('-inf')
     epochs_no_improve = 0
 
     history_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv'
-    history_fields = ['epoch', 'train_loss', 'val_loss', 'spearman_rho']
+    history_fields = ['epoch', 'train_loss', 'val_loss', 'spearman_rho', 'pred_std']
     history_file = open(history_path, 'w', newline='')
     history_writer = csv.DictWriter(history_file, fieldnames=history_fields)
     history_writer.writeheader()
@@ -270,8 +273,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     # Initial evaluation
     print('*' * 40)
     print('Initial evaluation')
-    best_val_loss, best_rho = evaluate_mem_model(model, val_loader, device, criterion)
-    print(f'Val MSE: {best_val_loss:.4f}  |  Spearman r: {best_rho:.4f}')
+    best_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion)
+    print(f'Val MSE: {best_val_loss:.4f}  |  Spearman r: {rho:.4f} | Pred std: {pred_std:.4f}')
     print('*' * 40 + '\n')
 
     for epoch in range(epochs):
@@ -285,7 +288,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                 targets = targets.to(device)
  
                 optimizer.zero_grad()
-                preds = model(images)
+                preds = model(images).squeeze(1) # [B]
                 loss  = criterion(preds, targets)
                 loss.backward()
                 optimizer.step()
@@ -294,32 +297,25 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                 pbar.set_postfix({'loss': loss.item()})
  
         avg_train_loss = total_loss / len(train_loader.dataset)
-        avg_val_loss, rho = evaluate_mem_model(model, val_loader, device, criterion, save_path)
+        avg_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion, save_path)
 
         print(f'Epoch {epoch+1}: '
               f'Train MSE: {avg_train_loss:.4f}  |  '
               f'Val MSE: {avg_val_loss:.4f}  |  '
-              f'Spearman r: {rho:.4f}')
+              f'Spearman r: {rho:.4f} | '
+              f'Pred std: {pred_std:.4f}')
 
         history_writer.writerow({
             'epoch': epoch+1,
             'train_loss': avg_train_loss,
             'val_loss': avg_val_loss,
             'spearman_rho': rho,
+            'pred_std': pred_std,
         })
         history_file.flush()
 
-        if rho > best_rho:
-            best_rho = rho
-            epochs_no_improve = 0
-            torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}.pth')
-            print(f'  -> Checkpoint saved (epoch {epoch+1})')
-        else:
-            epochs_no_improve += 1
-        print(f'Epochs without improvement: {epochs_no_improve}')
-
-        # if avg_val_loss < best_val_loss:
-        #     best_val_loss = avg_val_loss
+        # if rho > best_rho:
+        #     best_rho = rho
         #     epochs_no_improve = 0
         #     torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}.pth')
         #     print(f'  -> Checkpoint saved (epoch {epoch+1})')
@@ -327,10 +323,19 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
         #     epochs_no_improve += 1
         # print(f'Epochs without improvement: {epochs_no_improve}')
 
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            epochs_no_improve = 0
+            torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}.pth')
+            print(f'  -> Checkpoint saved (epoch {epoch+1})')
+        else:
+            epochs_no_improve += 1
+        print(f'Epochs without improvement: {epochs_no_improve}')
+
         if epochs_no_improve == early_stopping_patience:
             print(f'\nEarly stopping triggered at epoch {epoch+1}')
-            test_loss, test_rho = evaluate_mem_model(model, test_loader, device, criterion)
-            print(f'Final Test MSE: {test_loss:.4f}  |  Final Test Spearman r: {test_rho:.4f}')
+            test_loss, test_rho, test_pred_std = evaluate_mem_model(model, test_loader, device, criterion)
+            print(f'Final Test MSE: {test_loss:.4f}  |  Final Test Spearman r: {test_rho:.4f} | Final Test Pred std: {test_pred_std:.4f}')
             history_file.close()
             break
 
@@ -430,7 +435,7 @@ def run_mem_training(config):
             else:
                 raise ValueError(f'Invalid model type: {config["model_type"]}')
         _out = model(_dummy_image)
-        print(f'[Model] MLP output shape:          {tuple(_out.shape)}')
+        print(f'[Model] MLP output shape (expect 2,):          {tuple(_out.shape)}')
         print(f'[Model] Output range:              [{_out.min().item():.4f}, {_out.max().item():.4f}]')
     model.train()
 
