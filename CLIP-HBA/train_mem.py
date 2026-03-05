@@ -3,12 +3,16 @@ import torch.nn as nn
 
 def main():
     config = {
+        'model_type': 'perceptclip', # 'clip_hba_mem' | 'perceptclip'
+
         # --- Data ---
         'fold':      1,                                       # 1, 2, 3, 4, 5
         'train_csv': './Data/lamem/lamem_train_1.csv',   # columns: image_path, score
         'val_csv':   './Data/lamem/lamem_val_1.csv',     # columns: image_path, score
         'test_csv':  './Data/lamem/lamem_test_1.csv',    # columns: image_path, score
         'img_root':  './Data/lamem/images/',            # prepended to image_path if set
+        'preds_dir': './preds/',
+        'log_path': './logs/mem.log',
  
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
@@ -25,7 +29,7 @@ def main():
         'batch_size':               32,
         'lr':                       5e-5,
         'early_stopping_patience':  10,
-        'checkpoint_path':          './models/clip_hba_mem',
+        'checkpoint_path':          './models/perceptclip',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }
