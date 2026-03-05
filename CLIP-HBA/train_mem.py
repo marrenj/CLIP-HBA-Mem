@@ -3,12 +3,16 @@ import torch.nn as nn
 
 def main():
     config = {
+        'model_type': 'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+
         # --- Data ---
         'fold':      1,                                       # 1, 2, 3, 4, 5
         'train_csv': './Data/lamem/lamem_train_1.csv',   # columns: image_path, score
         'val_csv':   './Data/lamem/lamem_val_1.csv',     # columns: image_path, score
         'test_csv':  './Data/lamem/lamem_test_1.csv',    # columns: image_path, score
         'img_root':  './Data/lamem/images/',            # prepended to image_path if set
+        'preds_dir': './preds/',
+        'log_path': './logs/mem.log',
  
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',

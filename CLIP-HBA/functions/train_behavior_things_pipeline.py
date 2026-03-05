@@ -32,6 +32,7 @@ def seed_everything(seed):
     # Set the seed for PyTorch's random number generators
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8" # required for determinitsic cuBLAS (nn.Linear on CUDA)
 
     # Set the seed for Python's random number generator
     random.seed(seed)

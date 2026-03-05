@@ -159,3 +159,6 @@ mmedit/.mim
 /CLIP-HBA/data/lamem/*
 /CLIP-HBA/models/
 /CLIP-HBA/models/*
+
+/CLIP-HBA/preds/
+/CLIP-HBA/logs/

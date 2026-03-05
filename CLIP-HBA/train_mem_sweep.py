@@ -32,6 +32,8 @@ from functions.train_mem_pipeline import run_mem_training
 # Fixed configuration — edit paths and device to match your environment
 # ---------------------------------------------------------------------------
 BASE_CONFIG = {
+    'model_type': 'clip_hba_mem',  # sweep only covers the CLIPHBAMem head
+
     # Fold used for the sweep; run the winning config on all 5 folds afterward
     'fold':      1,
     'train_csv': './Data/lamem/lamem_train_1.csv',
