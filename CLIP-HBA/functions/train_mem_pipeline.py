@@ -69,7 +69,8 @@ class CLIPHBAMem(nn.Module):
     """
 
     def __init__(self, backbone_checkpoint, backbone_name='ViT-L/14',
-                 vision_layers=2, transformer_layers=1, rank=32):
+                 vision_layers=2, transformer_layers=1, rank=32,
+                 hidden_dims=(512, 256), dropout_rate=0.5):
         super().__init__()
  
         # --- Frozen CLIP-HBA backbone ---
@@ -95,13 +96,15 @@ class CLIPHBAMem(nn.Module):
         print(f'[Backbone] {n_frozen} parameters frozen')
 
 
-        # --- MLP head (PerceptCLIP-style + sigmoid) ---
-        self.fc1     = nn.Linear(768,  512)
-        self.relu1   = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
-        self.fc2     = nn.Linear(512, 256)
-        self.relu2   = nn.ReLU()
-        self.fc3     = nn.Linear(256, 1)
+        # --- MLP head (dynamically constructed) ---
+        layers = []
+        in_dim = 768
+        for h in hidden_dims:
+            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            in_dim = h
+        layers.append(nn.Linear(in_dim, 1))
+        self.mlp_head = nn.Sequential(*layers)
+        print(f'[MLP] hidden_dims={hidden_dims}  dropout={dropout_rate}')
 
     def train(self, mode=True):
         super().train(mode)
@@ -113,15 +116,11 @@ class CLIPHBAMem(nn.Module):
         with torch.no_grad():
             emb = self.backbone.clip_model.encode_image(x, self.backbone.pos_embedding)
  
-        h = self.fc1(emb);  h = self.relu1(h);  h = self.dropout(h)
-        h = self.fc2(h);    h = self.relu2(h);  h = self.dropout(h)
-        return torch.sigmoid(self.fc3(h)).squeeze(1)  # [B]
+        return torch.sigmoid(self.mlp_head(emb)).squeeze(1)  # [B]
 
     def mlp_parameters(self):
         """Returns only the MLP head parameters (used by the optimiser)."""
-        head_names = {'fc1', 'relu1', 'dropout', 'fc2', 'relu2', 'fc3'}
-        return [p for n, p in self.named_parameters()
-                if n.split('.')[0] in head_names]
+        return list(self.mlp_head.parameters())
 
 
 def evaluate_mem_model(model, data_loader, device, criterion, save_csv_path=None):
@@ -252,6 +251,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     else:
         history_file.close()
 
+    return best_rho
+
 
 def _seed_worker(worker_id):
     """Seed numpy/random in each DataLoader worker for reproducibility.
@@ -268,12 +269,28 @@ def _seed_worker(worker_id):
 
 
 def run_mem_training(config):
-    """Run memorability training with the given configuration dict."""
+    """Run memorability training with the given configuration dict.
+
+    Returns:
+        best_rho (float): best validation Spearman ρ achieved during training.
+    """
+    _saved_stdout = sys.stdout
+    log_file = None
     log_path = config.get('log_path', None)
     if log_path:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_file = open(log_path, 'w', buffering=1)  # line-buffered
         sys.stdout = log_file
 
+    try:
+        return _run_mem_training_impl(config)
+    finally:
+        sys.stdout = _saved_stdout
+        if log_file is not None:
+            log_file.close()
+
+
+def _run_mem_training_impl(config):
     seed_everything(config['random_seed'])
  
     train_dataset = MemDataset(csv_file=config['train_csv'],
@@ -284,6 +301,17 @@ def run_mem_training(config):
                                img_root=config.get('img_root', ''))
 
     print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples | Test: {len(test_dataset)} samples')
+
+    train_frac = config.get('train_fraction', 1.0)
+    if train_frac < 1.0:
+        n_orig = len(train_dataset)
+        n_sub = max(1, int(n_orig * train_frac))
+        train_dataset.annotations = (
+            train_dataset.annotations
+            .sample(n=n_sub, random_state=config['random_seed'])
+            .reset_index(drop=True)
+        )
+        print(f'[Data] Subsampled train set: {n_sub}/{n_orig} ({train_frac:.0%})')
 
     _, img0, score0 = train_dataset[0]
     print(f'\n[Data] sample image tensor shape: {tuple(img0.shape)}')
@@ -309,6 +337,8 @@ def run_mem_training(config):
         vision_layers=config['vision_layers'],
         transformer_layers=config['transformer_layers'],
         rank=config['rank'],
+        hidden_dims=config.get('hidden_dims', (512, 256)),
+        dropout_rate=config.get('dropout_rate', 0.5),
     )
  
     if config['cuda'] == -1:
@@ -347,7 +377,7 @@ def run_mem_training(config):
         print(f'  {key}: {value}')
     print(f'\nTrainable parameters: {count_trainable_parameters(model):,}\n')
 
-    train_mem_model(
+    best_rho = train_mem_model(
         model, train_loader, val_loader, device,
         optimizer, config['criterion'],
         config['epochs'],
@@ -357,3 +387,4 @@ def run_mem_training(config):
         config['fold'],
         preds_dir=config.get('preds_dir', None),
     )
+    return best_rho

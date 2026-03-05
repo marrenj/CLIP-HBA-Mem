@@ -20,6 +20,10 @@ def main():
         # --- Device ---
         'cuda':                     1,   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
+        # --- MLP head ---
+        'hidden_dims':   (512, 256),   # tuple of hidden layer widths; e.g. (512, 256) or (512, 256, 128)
+        'dropout_rate':  0.5,
+
         # --- Training ---
         'epochs':                   300,
         'batch_size':               32,
