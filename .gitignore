@@ -157,6 +157,8 @@ mmedit/.mim
 /CLIP-HBA/data/imagenet/*
 /CLIP-HBA/data/lamem/
 /CLIP-HBA/data/lamem/*
+/CLIP-HBA/Data/memcat/
+/CLIP-HBA/Data/memcat/*
 /CLIP-HBA/models/
 /CLIP-HBA/models/*
 

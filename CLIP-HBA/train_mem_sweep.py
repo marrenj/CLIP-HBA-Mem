@@ -49,11 +49,11 @@ BASE_CONFIG = {
     'rank':                32,
 
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 1,
+    'cuda': 0,
 
     # Fixed training settings for the sweep
     'epochs':                  300,
-    'early_stopping_patience': 5,    # shorter than final training (10) to speed up sweep
+    'early_stopping_patience': 12,    # shorter than final training (10) to speed up sweep
     'train_fraction':          0.2,  # subsample 20 % of training data per run
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
