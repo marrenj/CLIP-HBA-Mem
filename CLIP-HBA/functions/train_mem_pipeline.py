@@ -145,6 +145,56 @@ class clip_lora_model(nn.Module):
         return outputs
 
 
+class CLIPFrozenMLP(nn.Module):
+    """Frozen CLIP-ViT-L/14 backbone (from HuggingFace) + trainable MLP head.
+
+    Downloads ``openai/clip-vit-large-patch14`` from HuggingFace, freezes
+    the entire vision encoder and visual projection, and trains only the
+    MLP head on top of the 768-dim projected embeddings.
+    """
+
+    def __init__(self, hidden_dims=(512, 256), dropout_rate=0.5):
+        super().__init__()
+
+        model_name = 'openai/clip-vit-large-patch14'
+        clip_model = CLIPModel.from_pretrained(model_name)
+        self.vision_model = clip_model.vision_model
+        self.visual_projection = clip_model.visual_projection
+
+        for p in self.vision_model.parameters():
+            p.requires_grad = False
+        for p in self.visual_projection.parameters():
+            p.requires_grad = False
+        n_frozen = (sum(1 for p in self.vision_model.parameters())
+                    + sum(1 for p in self.visual_projection.parameters()))
+        print(f'[Backbone] Loaded {model_name} — {n_frozen} tensors frozen')
+
+        # --- MLP head ---
+        layers = []
+        in_dim = 768
+        for h in hidden_dims:
+            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            in_dim = h
+        layers.append(nn.Linear(in_dim, 1))
+        self.mlp_head = nn.Sequential(*layers)
+        print(f'[MLP] hidden_dims={hidden_dims}  dropout={dropout_rate}')
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.vision_model.eval()
+        return self
+
+    def forward(self, x):
+        with torch.no_grad():
+            vision_out = self.vision_model(x)
+            emb = self.visual_projection(vision_out[1])  # pooled_output -> [B, 768]
+        return self.mlp_head(emb)  # [B, 1]
+
+    def mlp_parameters(self):
+        """Returns only the MLP head parameters (used by the optimiser)."""
+        return list(self.mlp_head.parameters())
+
+
 class CLIPHBAMem(nn.Module):
     """Frozen CLIP-HBA backbone + dynamically-constructed MLP head for memorability.
 
@@ -384,7 +434,7 @@ def _run_mem_training_impl(config):
 
     model_type = config.get('model_type', 'clip_hba_mem')
 
-    if model_type == 'perceptclip':
+    if model_type in ('perceptclip', 'clip_frozen_mlp'):
         train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'],
                                            img_root=config.get('img_root', ''))
         val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],
@@ -442,6 +492,11 @@ def _run_mem_training_impl(config):
             hidden_dims=config.get('hidden_dims', (512, 256)),
             dropout_rate=config.get('dropout_rate', 0.5),
         )
+    elif model_type == 'clip_frozen_mlp':
+        model = CLIPFrozenMLP(
+            hidden_dims=config.get('hidden_dims', (512, 256)),
+            dropout_rate=config.get('dropout_rate', 0.5),
+        )
     elif model_type == 'perceptclip':
         model = clip_lora_model()
     else:
@@ -473,6 +528,11 @@ def _run_mem_training_impl(config):
             _emb = _raw.backbone.clip_model.encode_image(
                 _dummy_image, _raw.backbone.pos_embedding)
             print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')
+        elif model_type == 'clip_frozen_mlp':
+            _raw = model.module if isinstance(model, DataParallel) else model
+            _vis_out = _raw.vision_model(_dummy_image)
+            _emb = _raw.visual_projection(_vis_out[1])
+            print(f'[Model] vision_model + projection output shape: {tuple(_emb.shape)}')
         _out = model(_dummy_image)
         print(f'[Model] Raw output shape: {tuple(_out.shape)}  '
               f'(squeezed: {tuple(_out.squeeze(1).shape)})')

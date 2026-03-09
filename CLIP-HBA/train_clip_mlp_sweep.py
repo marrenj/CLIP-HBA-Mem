@@ -1,21 +1,24 @@
-"""Hyperparameter sweep for the memorability MLP head.
+"""Hyperparameter sweep for the frozen CLIP-ViT-L/14 + MLP head.
 
 Usage
 -----
     cd CLIP-HBA
-    python train_mem_sweep.py
+    python train_clip_mlp_sweep.py
 
-Edit BASE_CONFIG (data paths, backbone, device) and SWEEP_GRID (search space)
-below before running.  All 48 combinations are evaluated sequentially on fold 1
-using 20 % of the training data and early-stopping patience of 5, so each run
-is much faster than a full training run.  After the sweep, re-train the winning
-config on the full training set (train_fraction=1.0, patience=10) across all 5
-folds to get final performance numbers.
+    # Resume an interrupted sweep (skips runs with valid results, re-runs nans)
+    python train_clip_mlp_sweep.py --resume ./sweep_out_clip_mlp/20260306_214413
+
+Edit BASE_CONFIG (data paths, device) and SWEEP_GRID (search space) below
+before running.  All 48 combinations are evaluated sequentially on fold 1
+using 20 % of the training data and early-stopping patience of 12, so each
+run is much faster than a full training run.  After the sweep, re-train the
+winning config on the full training set (train_fraction=1.0, patience=10)
+across all 5 folds to get final performance numbers.
 
 Outputs
 -------
-  sweep_out/<timestamp>/run_NNN/log.txt  -- per-run training log
-  sweep_out/<timestamp>/sweep_results.csv -- all results sorted by val Spearman rho
+  sweep_out_clip_mlp/<timestamp>/run_NNN/log.txt  -- per-run training log
+  sweep_out_clip_mlp/<timestamp>/sweep_results.csv -- all results sorted by val Spearman rho
 """
 
 import argparse
@@ -30,10 +33,10 @@ import torch.nn as nn
 from functions.train_mem_pipeline import run_mem_training
 
 # ---------------------------------------------------------------------------
-# Fixed configuration — edit paths and device to match your environment
+# Fixed configuration -- edit paths and device to match your environment
 # ---------------------------------------------------------------------------
 BASE_CONFIG = {
-    'model_type': 'clip_hba_mem',  # sweep only covers the CLIPHBAMem head
+    'model_type': 'clip_frozen_mlp',
 
     # Fold used for the sweep; run the winning config on all 5 folds afterward
     'fold':      1,
@@ -42,27 +45,19 @@ BASE_CONFIG = {
     'test_csv':  './Data/lamem/lamem_test_1.csv',
     'img_root':  './Data/lamem/images/',
 
-    # Backbone (frozen — these must match the checkpoint's DoRA config)
-    'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
-    'backbone':            'ViT-L/14',
-    'vision_layers':       2,
-    'transformer_layers':  1,
-    'rank':                32,
-
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 0,
+    'cuda': 1,
 
     # Fixed training settings for the sweep
     'epochs':                  300,
-    'early_stopping_patience': 12,    # shorter than final training (10) to speed up sweep
-    'train_fraction':          0.2,  # subsample 20 % of training data per run
+    'early_stopping_patience': 12,
+    'train_fraction':          0.2,
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
-
 }
 
 # ---------------------------------------------------------------------------
-# Search grid   (4 × 2 × 3 × 2 = 48 total combinations)
+# Search grid   (4 x 2 x 3 x 2 = 48 total combinations)
 # ---------------------------------------------------------------------------
 SWEEP_GRID = {
     'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
@@ -74,7 +69,7 @@ SWEEP_GRID = {
 # ---------------------------------------------------------------------------
 # Sweep output directory
 # ---------------------------------------------------------------------------
-SWEEP_DIR = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+SWEEP_DIR = f'./sweep_out_clip_mlp/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
 
 def _load_completed_runs(results_csv):
@@ -210,16 +205,16 @@ def run_sweep(resume_dir=None):
         )
     sweep_stdout.write('=' * 65 + '\n')
     sweep_stdout.write(
-        '\nNext step: copy the winning config into train_mem.py and run with\n'
+        '\nNext step: copy the winning config into train_clip_mlp.py and run with\n'
         '  train_fraction=1.0  and  early_stopping_patience=10  across all 5 folds.\n'
     )
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Hyperparameter sweep for CLIPHBAMem.')
+    parser = argparse.ArgumentParser(description='Hyperparameter sweep for frozen CLIP + MLP.')
     parser.add_argument(
         '--resume', metavar='DIR', default=None,
-        help='Path to an existing sweep_out/<timestamp> directory to resume. '
+        help='Path to an existing sweep_out_clip_mlp/<timestamp> directory to resume. '
              'Runs with a valid (non-nan) best_val_rho are skipped; all others are re-run.',
     )
     args = parser.parse_args()

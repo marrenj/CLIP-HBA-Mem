@@ -1,0 +1,46 @@
+
+[Data] Train: 45000 samples | Val: 3741 samples | Test: 10000 samples
+[Data] Subsampled train set: 9000/45000 (20%)
+
+[Data] sample image tensor shape: (3, 224, 224)
+
+[Data] sample score: 0.8636
+
+[Data] Score range: min 0.2424 to max 1.0000
+[Backbone] Loaded openai/clip-vit-large-patch14 — 392 tensors frozen
+[MLP] hidden_dims=(512, 256)  dropout=0.5
+
+[Model] Probe forward pass...
+[Model] vision_model + projection output shape: (2, 768)
+[Model] Raw output shape: (2, 1)  (squeezed: (2,))
+[Model] Output range: [-0.0275, -0.0261]
+
+Model Configuration:
+--------------------
+  model_type: clip_frozen_mlp
+  fold: 1
+  train_csv: ./Data/lamem/lamem_train_1.csv
+  val_csv: ./Data/lamem/lamem_val_1.csv
+  test_csv: ./Data/lamem/lamem_test_1.csv
+  img_root: ./Data/lamem/images/
+  cuda: 1
+  epochs: 300
+  early_stopping_patience: 12
+  train_fraction: 0.2
+  criterion: MSELoss()
+  random_seed: 42
+  hidden_dims: (512, 256)
+  dropout_rate: 0.5
+  lr: 5e-05
+  batch_size: 32
+  log_path: ./sweep_out_clip_mlp/20260306_214413\run_008\log.txt
+  checkpoint_path: ./sweep_out_clip_mlp/20260306_214413\run_008\checkpoint
+
+Trainable parameters: 525,313
+
+****************************************
+Initial evaluation
+Val MSE: 0.5942  |  Spearman r: -0.1333  |  Pred std: 0.0373
+****************************************
+
+Epoch 1: Train MSE: 0.0630  |  Val MSE: 0.0122  |  Spearman r: 0.5258  |  Pred std: 0.0829
