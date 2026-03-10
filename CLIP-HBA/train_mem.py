@@ -22,6 +22,7 @@ def main():
         'lr':                       1e-4,
         'early_stopping_patience':  10,
         'checkpoint_path':          './models/clip_hba_mem.pth',
+        'preds_dir':                './preds/',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }

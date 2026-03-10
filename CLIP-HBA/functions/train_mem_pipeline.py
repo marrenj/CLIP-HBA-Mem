@@ -50,7 +50,7 @@ class MemDataset(Dataset):
         image = Image.open(img_path).convert('RGB')
         image = self.transform(image)
         score = torch.tensor(float(row['score']), dtype=torch.float32)
-        return image, score
+        return row['image_path'], image, score
 
 
 class CLIPHBAMem(nn.Module):
@@ -120,15 +120,16 @@ class CLIPHBAMem(nn.Module):
                 if n.split('.')[0] in head_names]
 
 
-def evaluate_mem_model(model, data_loader, device, criterion):
+def evaluate_mem_model(model, data_loader, device, criterion, save_csv_path=None):
     """Returns avg MSE loss and Spearman rank correlation on data_loader."""
     model.eval()
     total_loss = 0.0
+    all_image_paths = []
     all_preds = []
     all_targets = []
 
     with torch.no_grad(), tqdm(data_loader, desc='Evaluating', leave=False) as pbar:
-        for images, targets in pbar:
+        for image_paths, images, targets in pbar:
             images  = images.to(device)
             targets = targets.to(device)
 
@@ -136,6 +137,7 @@ def evaluate_mem_model(model, data_loader, device, criterion):
             loss  = criterion(preds, targets)
             total_loss += loss.item() * images.size(0)
 
+            all_image_paths.extend(image_paths)
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
             pbar.set_postfix({'loss': loss.item()})
@@ -143,20 +145,32 @@ def evaluate_mem_model(model, data_loader, device, criterion):
     avg_loss = total_loss / len(data_loader.dataset)
     rho, _ = spearmanr(all_preds, all_targets)
     pred_std = float(np.std(all_preds))
+
+    if save_csv_path is not None:
+        pd.DataFrame({
+            'image_path': all_image_paths,
+            'score':      all_targets,
+            'pred':       all_preds,
+        }).to_csv(save_csv_path, index=False)
+
     return avg_loss, rho, pred_std
 
 
 def train_mem_model(model, train_loader, val_loader, device, optimizer, criterion,
                     epochs, early_stopping_patience=10,
-                    checkpoint_path='clip_hba_mem.pth'):
+                    checkpoint_path='clip_hba_mem.pth', preds_dir=None):
     model.train()
     best_val_loss = float('inf')
     epochs_no_improve = 0
 
+    if preds_dir is not None:
+        os.makedirs(preds_dir, exist_ok=True)
+
     # Initial evaluation
     print('*' * 40)
     print('Initial evaluation')
-    best_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion)
+    save_path = os.path.join(preds_dir, 'epoch_000.csv') if preds_dir else None
+    best_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion, save_csv_path=save_path)
     print(f'Val MSE: {best_val_loss:.4f}  |  Spearman ρ: {rho:.4f}  |  Pred std: {pred_std:.4f}')
     print('*' * 40 + '\n')
 
@@ -165,7 +179,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
         total_loss = 0.0
 
         with tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}') as pbar:
-            for images, targets in pbar:
+            for _, images, targets in pbar:
                 images  = images.to(device)
                 targets = targets.to(device)
 
@@ -179,7 +193,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                 pbar.set_postfix({'loss': loss.item()})
 
         avg_train_loss = total_loss / len(train_loader.dataset)
-        avg_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion)
+        save_path = os.path.join(preds_dir, f'epoch_{epoch+1:03d}.csv') if preds_dir else None
+        avg_val_loss, rho, pred_std = evaluate_mem_model(model, val_loader, device, criterion, save_csv_path=save_path)
 
         print(f'Epoch {epoch+1}: '
               f'Train MSE: {avg_train_loss:.4f}  |  '
@@ -210,7 +225,7 @@ def run_mem_training(config):
                                img_root=config.get('img_root', ''))
 
     print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples')
-    img0, score0 = train_dataset[0]
+    _, img0, score0 = train_dataset[0]
     print(f'[Data] Sample image tensor shape: {tuple(img0.shape)}')   # expect (3, 224, 224)
     print(f'[Data] Sample score: {score0.item():.4f}')
     scores = train_dataset.annotations['score']
@@ -258,4 +273,5 @@ def run_mem_training(config):
         config['epochs'],
         config['early_stopping_patience'],
         config['checkpoint_path'],
+        preds_dir=config.get('preds_dir', None),
     )
