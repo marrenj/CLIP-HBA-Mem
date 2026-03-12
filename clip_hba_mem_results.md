@@ -2,7 +2,7 @@
 title: "CLIP-HBA-Mem: Preliminary Memorability Results"
 author: "Marren Jenkins & David Tovar — Vanderbilt University"
 date: "March 2026"
-geometry: margin=1in
+geometry: margin=0.75in
 fontsize: 11pt
 linestretch: 1.3
 colorlinks: true
@@ -49,18 +49,13 @@ A **hyperparameter search** was conducted for both vanilla CLIP and CLIP-HBA-Beh
 
 The primary benchmark. Human consistency ceiling on LaMem is $\rho$ = 0.68.
 
-+-------+--------------+--------------+
-| Model |    Fold 1    |    Fold 2    |
-|       +--------------+--------------+
-|       | MSE | $\rho$ | MSE | $\rho$ |
-+=======+==============+==============+
-
 | Model | Fold 1 | Fold 2 | Fold 3 | Fold 4 | Fold 5 | **Mean ± SD** |
 |---|---|---|---|---|---|---|
-| MemNet (Khosla et al., 2015) | — | — | — | — | — | 0.64 |
+| MemNet (Khosla et al., 2015) | — | — | — | — | — | 0.57 |
 | AMNet (Fajtl et al., 2018) | — | — | — | — | — | 0.677 |
+| ResMem-Net (Praveen et al., 2021) | — | — | — | — | — | 0.679 |
 | ResMem (Needell & Bainbridge, 2022) | — | — | — | — | — | 0.64 |
-| ViTMem (Hagen & Espeseth, 2023) | — | — | — | — | — | $\geq$0.64 |
+| ViTMem (Hagen & Espeseth, 2023) | — | — | — | — | — | $\geq 0.64$ |
 | PerceptCLIP (Zalcher et al., 2025) | — | — | — | — | — | SOTA |
 | *Human ceiling* | — | — | — | — | — | *0.68* |
 | **CLIP ViT-L/14 (frozen) + MLP** | `[X]` | `[X]` | `[X]` | `[X]` | `[X]` | **`[X ± X]`** |
