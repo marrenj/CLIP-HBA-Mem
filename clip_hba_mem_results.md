@@ -7,6 +7,9 @@ fontsize: 11pt
 linestretch: 1.3
 colorlinks: true
 linkcolor: blue
+header-includes:
+  - \usepackage{microtype}
+  - \setlength{\emergencystretch}{3em}
 ---
 
 ## Overview
