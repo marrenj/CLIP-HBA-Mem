@@ -296,9 +296,9 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                     epochs, early_stopping_patience=10,
                     checkpoint_path='clip_hba_mem.pth',
                     test_loader=None,
-                    fold=1, preds_dir=None):
+                    fold=1, preds_dir=None, run_timestamp=None):
     """Train model and return the Spearman ρ recorded at the best-loss checkpoint."""
-    run_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     if preds_dir is not None:
         preds_dir = os.path.join(preds_dir, run_timestamp)
         os.makedirs(preds_dir, exist_ok=True)
@@ -366,7 +366,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
             best_val_loss = avg_val_loss
             best_rho = rho  # record rho at the checkpoint epoch
             epochs_no_improve = 0
-            torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}.pth')
+            torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth')
             print(f'  -> Checkpoint saved (epoch {epoch+1})')
         else:
             epochs_no_improve += 1
@@ -411,9 +411,9 @@ def run_mem_training(config):
     """
     _saved_stdout = sys.stdout
     log_file = None
+    run_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = config.get('log_path', None)
     if log_path:
-        run_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         fold = config.get('fold', 1)
         base, ext = os.path.splitext(log_path)
         log_path = f'{base}_fold{fold}_{run_timestamp}{ext}'
@@ -422,14 +422,14 @@ def run_mem_training(config):
         sys.stdout = log_file
 
     try:
-        return _run_mem_training_impl(config)
+        return _run_mem_training_impl(config, run_timestamp)
     finally:
         sys.stdout = _saved_stdout
         if log_file is not None:
             log_file.close()
 
 
-def _run_mem_training_impl(config):
+def _run_mem_training_impl(config, run_timestamp):
     seed_everything(config['random_seed'])
 
     model_type = config.get('model_type', 'clip_hba_mem')
@@ -562,5 +562,6 @@ def _run_mem_training_impl(config):
         test_loader,
         config['fold'],
         preds_dir=config.get('preds_dir', None),
+        run_timestamp=run_timestamp
     )
     return best_rho
