@@ -24,7 +24,7 @@ def main():
         'rank':                32,
 
         # --- Device ---
-        'cuda':                     -1,   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
+        'cuda': int(os.environ.get('CUDA_DEVICE', -1)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
         # --- MLP head ---
         'hidden_dims':   (256, 128),
@@ -34,7 +34,7 @@ def main():
         'epochs':                   300,
         'batch_size':               32,
         'lr':                       1e-5,
-        'early_stopping_patience':  10,
+        'early_stopping_patience':  20,
         'checkpoint_path':          './models/clip_hba_mem',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
