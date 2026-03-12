@@ -161,7 +161,8 @@ mmedit/.mim
 /CLIP-HBA/Data/memcat/*
 /CLIP-HBA/models/
 /CLIP-HBA/models/*
-
+/CLIP-HBA/sweep_out_clip_mlp/
+/CLIP-HBA/sweep_out_clip_mlp/*
 /CLIP-HBA/preds/
 /CLIP-HBA/logs/
 /CLIP-HBA/sweep_out/
