@@ -3,7 +3,6 @@ title: "CLIP-HBA-Mem: Preliminary Memorability Results"
 author: "Marren Jenkins & David Tovar — Vanderbilt University"
 date: "March 2026"
 geometry: margin=0.75in
-pdf-engine: xelatex
 fontsize: 11pt
 linestretch: 1.3
 colorlinks: true
