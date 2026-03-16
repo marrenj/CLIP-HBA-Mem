@@ -2,11 +2,12 @@ import csv
 import torch
 import torch.nn as nn
 from torch.nn import DataParallel
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import os
+import pathlib
 import sys
 import numpy as np
 import datetime
@@ -90,6 +91,35 @@ class PerceptCLIPDataset(Dataset):
         image = self.transform(image)
         score = torch.tensor(float(row['score']), dtype=torch.float32)
         return row['image_path'], image, score
+
+
+class EmbeddingDataset(Dataset):
+    """Dataset that serves precomputed 768-dim backbone embeddings.
+
+    Loads a .pt file produced by extract_embeddings.py containing a dict:
+        embeddings  - Tensor[N, 768]
+        scores      - Tensor[N]
+        image_paths - list[N]
+
+    Returns the same (image_path, embedding, score) tuple as MemDataset /
+    PerceptCLIPDataset so the training loop requires no changes.
+    """
+
+    def __init__(self, pt_path: str) -> None:
+        payload = torch.load(pt_path, map_location='cpu', weights_only=True)
+        self.embeddings:  torch.Tensor = payload['embeddings']   # [N, 768]
+        self.scores:      torch.Tensor = payload['scores']        # [N]
+        self.image_paths: list         = payload['image_paths']   # list[N]
+
+    def __len__(self) -> int:
+        return len(self.scores)
+
+    def __getitem__(self, index: int):
+        return (
+            self.image_paths[index],
+            self.embeddings[index],   # [768]
+            self.scores[index],       # scalar
+        )
 
 
 class MLP(nn.Module):
@@ -192,6 +222,38 @@ class CLIPFrozenMLP(nn.Module):
 
     def mlp_parameters(self):
         """Returns only the MLP head parameters (used by the optimiser)."""
+        return list(self.mlp_head.parameters())
+
+
+class MLPOnlyHead(nn.Module):
+    """Lightweight MLP head that operates directly on precomputed 768-dim embeddings.
+
+    Drop-in replacement for CLIPHBAMem / CLIPFrozenMLP when training on
+    precomputed embeddings.  Contains no backbone — the forward pass is
+    only the MLP layers, making each training step orders of magnitude faster.
+    """
+
+    def __init__(self, hidden_dims: tuple = (256, 128), dropout_rate: float = 0.5,
+                 input_dim: int = 768) -> None:
+        super().__init__()
+        layers = []
+        in_dim = input_dim
+        for h in hidden_dims:
+            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            in_dim = h
+        layers.append(nn.Linear(in_dim, 1))
+        self.mlp_head = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Args:
+            x: Tensor[B, input_dim] — precomputed backbone embeddings.
+        Returns:
+            Tensor[B, 1] — memorability predictions.
+        """
+        return self.mlp_head(x)
+
+    def mlp_parameters(self) -> list:
+        """Returns all parameters (used by the optimiser, mirrors CLIPHBAMem API)."""
         return list(self.mlp_head.parameters())
 
 
@@ -432,9 +494,20 @@ def run_mem_training(config):
 def _run_mem_training_impl(config, run_timestamp):
     seed_everything(config['random_seed'])
 
-    model_type = config.get('model_type', 'clip_hba_mem')
+    model_type    = config.get('model_type', 'clip_hba_mem')
+    embeddings_dir = config.get('embeddings_dir', None)
+    use_precomputed = embeddings_dir is not None
 
-    if model_type in ('perceptclip', 'clip_frozen_mlp'):
+    # ------------------------------------------------------------------
+    # Dataset construction
+    # ------------------------------------------------------------------
+    if use_precomputed:
+        fold      = config.get('fold', 1)
+        emb_dir   = pathlib.Path(embeddings_dir)
+        train_dataset = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_train.pt')
+        val_dataset   = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_val.pt')
+        test_dataset  = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_test.pt')
+    elif model_type in ('perceptclip', 'clip_frozen_mlp'):
         train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'],
                                            img_root=config.get('img_root', ''))
         val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],
@@ -456,33 +529,63 @@ def _run_mem_training_impl(config, run_timestamp):
     if train_frac < 1.0:
         n_orig = len(train_dataset)
         n_sub = max(1, int(n_orig * train_frac))
-        train_dataset.annotations = (
-            train_dataset.annotations
-            .sample(n=n_sub, random_state=config['random_seed'])
-            .reset_index(drop=True)
-        )
+        if use_precomputed:
+            _rng = torch.Generator()
+            _rng.manual_seed(config['random_seed'])
+            _indices = torch.randperm(n_orig, generator=_rng)[:n_sub].tolist()
+            train_dataset = Subset(train_dataset, _indices)
+        else:
+            train_dataset.annotations = (
+                train_dataset.annotations
+                .sample(n=n_sub, random_state=config['random_seed'])
+                .reset_index(drop=True)
+            )
         print(f'[Data] Subsampled train set: {n_sub}/{n_orig} ({train_frac:.0%})')
 
-    _, img0, score0 = train_dataset[0]
-    print(f'\n[Data] sample image tensor shape: {tuple(img0.shape)}')
+    _, feat0, score0 = train_dataset[0]
+    print(f'\n[Data] sample feature tensor shape: {tuple(feat0.shape)}')
     print(f'\n[Data] sample score: {score0.item():.4f}')
-    scores = train_dataset.annotations['score']
-    print(f'\n[Data] Score range: min {scores.min():.4f} to max {scores.max():.4f}')
+    if use_precomputed:
+        _underlying = train_dataset.dataset if isinstance(train_dataset, Subset) else train_dataset
+        print(f'\n[Data] Score range: min {_underlying.scores.min():.4f} to max {_underlying.scores.max():.4f}')
+    else:
+        scores = train_dataset.annotations['score']
+        print(f'\n[Data] Score range: min {scores.min():.4f} to max {scores.max():.4f}')
+
+    # EmbeddingDataset serves in-memory tensors — no disk I/O per batch, so
+    # multiple workers only add IPC overhead.  Image-based datasets benefit
+    # from workers for parallel decode and augmentation.
+    if use_precomputed:
+        _num_workers      = 0
+        _persistent       = False
+        _worker_init_fn   = None
+    else:
+        _num_workers      = 8
+        _persistent       = True
+        _worker_init_fn   = _seed_worker
 
     _g = torch.Generator()
     _g.manual_seed(config['random_seed'])
     train_loader = DataLoader(train_dataset, batch_size=config['batch_size'],
-                              shuffle=True, num_workers=8, pin_memory=True,
-                              persistent_workers=True,
-                              generator=_g, worker_init_fn=_seed_worker)
+                              shuffle=True, num_workers=_num_workers,
+                              pin_memory=True, persistent_workers=_persistent,
+                              generator=_g, worker_init_fn=_worker_init_fn)
     val_loader   = DataLoader(val_dataset,   batch_size=config['batch_size'],
-                              shuffle=False, num_workers=8, pin_memory=True,
-                              persistent_workers=True)
+                              shuffle=False, num_workers=_num_workers,
+                              pin_memory=True, persistent_workers=_persistent)
     test_loader  = DataLoader(test_dataset,  batch_size=config['batch_size'],
-                              shuffle=False, num_workers=8, pin_memory=True,
-                              persistent_workers=True)
+                              shuffle=False, num_workers=_num_workers,
+                              pin_memory=True, persistent_workers=_persistent)
 
-    if model_type == 'clip_hba_mem':
+    # ------------------------------------------------------------------
+    # Model construction
+    # ------------------------------------------------------------------
+    if use_precomputed:
+        model = MLPOnlyHead(
+            hidden_dims=config.get('hidden_dims', (256, 128)),
+            dropout_rate=config.get('dropout_rate', 0.5),
+        )
+    elif model_type == 'clip_hba_mem':
         model = CLIPHBAMem(
             backbone_checkpoint=config['backbone_checkpoint'],
             backbone_name=config['backbone'],
@@ -521,22 +624,28 @@ def _run_mem_training_impl(config, run_timestamp):
     print('\n[Model] Probe forward pass...')
     model.eval()
     with torch.no_grad():
-        _dummy_image = torch.randn(2, 3, 224, 224).to(device)
-        if model_type == 'clip_hba_mem':
-            # Unwrap DataParallel to access backbone directly
-            _raw = model.module if isinstance(model, DataParallel) else model
-            _emb = _raw.backbone.clip_model.encode_image(
-                _dummy_image, _raw.backbone.pos_embedding)
-            print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')
-        elif model_type == 'clip_frozen_mlp':
-            _raw = model.module if isinstance(model, DataParallel) else model
-            _vis_out = _raw.vision_model(_dummy_image)
-            _emb = _raw.visual_projection(_vis_out[1])
-            print(f'[Model] vision_model + projection output shape: {tuple(_emb.shape)}')
-        _out = model(_dummy_image)
-        print(f'[Model] Raw output shape: {tuple(_out.shape)}  '
-              f'(squeezed: {tuple(_out.squeeze(1).shape)})')
-        print(f'[Model] Output range: [{_out.min().item():.4f}, {_out.max().item():.4f}]')
+        if use_precomputed:
+            _dummy_emb = torch.randn(2, 768).to(device)
+            _out = model(_dummy_emb)
+            print(f'[Model] MLPOnlyHead output shape: {tuple(_out.shape)}  '
+                  f'(squeezed: {tuple(_out.squeeze(1).shape)})')
+            print(f'[Model] Output range: [{_out.min().item():.4f}, {_out.max().item():.4f}]')
+        else:
+            _dummy_image = torch.randn(2, 3, 224, 224).to(device)
+            if model_type == 'clip_hba_mem':
+                _raw = model.module if isinstance(model, DataParallel) else model
+                _emb = _raw.backbone.clip_model.encode_image(
+                    _dummy_image, _raw.backbone.pos_embedding)
+                print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')
+            elif model_type == 'clip_frozen_mlp':
+                _raw = model.module if isinstance(model, DataParallel) else model
+                _vis_out = _raw.vision_model(_dummy_image)
+                _emb = _raw.visual_projection(_vis_out[1])
+                print(f'[Model] vision_model + projection output shape: {tuple(_emb.shape)}')
+            _out = model(_dummy_image)
+            print(f'[Model] Raw output shape: {tuple(_out.shape)}  '
+                  f'(squeezed: {tuple(_out.squeeze(1).shape)})')
+            print(f'[Model] Output range: [{_out.min().item():.4f}, {_out.max().item():.4f}]')
     model.train()
 
     # Build optimizer — unwrap DataParallel to reach mlp_parameters()

@@ -16,6 +16,11 @@ def main():
         'img_root':  os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),  # prepended to image_path if set
         'preds_dir': './preds/',
         'log_path':  './logs/mem.log',
+
+        # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
+        # Run extract_embeddings.slurm once to populate this directory, then
+        # uncomment the line below to skip backbone inference during training.
+        # 'embeddings_dir': './Data/lamem/embeddings/',
  
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
