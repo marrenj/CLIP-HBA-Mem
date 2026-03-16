@@ -4,8 +4,9 @@ import os
 
 def main():
     fold = int(os.environ.get('LAMEM_FOLD', 1))
+    model_type = os.environ.get('MODEL_TYPE', 'clip_hba_mem')
     config = {
-        'model_type': 'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+        'model_type': model_type,  # 'clip_hba_mem' | 'perceptclip'
 
         # --- Data ---
         'fold':      fold,

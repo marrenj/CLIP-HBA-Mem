@@ -1,21 +1,28 @@
 from functions.train_mem_pipeline import run_mem_training
 import torch.nn as nn
+import os
+
 
 def main():
+    fold = int(os.environ.get('LAMEM_FOLD', 1))
+    model_type = os.environ.get('MODEL_TYPE', 'clip_frozen_mlp')
+    img_root = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
+    cuda_device = int(os.environ.get('CUDA_DEVICE', 1))
+
     config = {
-        'model_type': 'clip_frozen_mlp',
+        'model_type': model_type,
 
         # --- Data ---
-        'fold':      1,
-        'train_csv': './Data/lamem/lamem_train_1.csv',
-        'val_csv':   './Data/lamem/lamem_val_1.csv',
-        'test_csv':  './Data/lamem/lamem_test_1.csv',
-        'img_root':  './Data/lamem/images/',
+        'fold':      fold,
+        'train_csv': f'./Data/lamem/lamem_train_{fold}.csv',
+        'val_csv':   f'./Data/lamem/lamem_val_{fold}.csv',
+        'test_csv':  f'./Data/lamem/lamem_test_{fold}.csv',
+        'img_root':  img_root,
         'preds_dir': './preds/',
         'log_path':  './logs/clip_frozen_mlp.log',
 
         # --- Device ---
-        'cuda': 1,
+        'cuda': cuda_device,
 
         # --- MLP head ---
         'hidden_dims':  (512, 256),

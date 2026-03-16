@@ -67,11 +67,11 @@ Reported metric: Spearman Rank Correlation Coefficient (SRCC). Prior model resul
 
 Both models evaluated zero-shot (no fine-tuning on target dataset; LaMem-trained MLP head applied directly).
 
-| Dataset | Human Ceiling | ResMem | ViTMem | CLIP (frozen) + MLP | **CLIP-HBA-Mem** |
+| Dataset | Human Ceiling | ResMem | ViTMem | CLIP (frozen) + MLP | **CLIP-HBA-Mem (M, SD)** |
 |---|---|---|---|---|---|
-| MemCat | 0.78 | — | — | `[X]` | **0.71** |
-| THINGS Memorability | 0.449 | 0.22 | 0.30 | `[X]` | **0.30** |
-| PASCAL-S (images) | — | 0.36 | 0.44 | `[X]` | `[X]` |
+| MemCat | .78 | — | — | `[X]` | **.712, .003** |
+| THINGS Memorability | .449 | .22 | .30 | `[X]` | **.293, .002** |
+| PASCAL-S (images) | — | .36 | .44 | `[X]` | `[X]` |
 
 MemCat: Goetschalckx & Wagemans (2019); 10,000 images across 5 semantic categories. THINGS Memorability: Kramer, Hebart, Baker & Bainbridge (2023); 26,107 object images, 1M+ ratings. PASCAL-S: Dubey, Peterson, Khosla, Yang, & Ghanem (2015). 
 
