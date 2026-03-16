@@ -21,6 +21,11 @@ def main():
         'preds_dir': './preds/',
         'log_path':  './logs/clip_frozen_mlp.log',
 
+        # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
+        # Run extract_embeddings.slurm once to populate this directory, then
+        # uncomment the line below to skip backbone inference during training.
+        # 'embeddings_dir': './Data/lamem/embeddings/',
+
         # --- Device ---
         'cuda': cuda_device,
 
