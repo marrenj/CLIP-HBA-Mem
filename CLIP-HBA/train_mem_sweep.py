@@ -91,6 +91,9 @@ LAMEM_CSV_PATTERN: str = './Data/lamem/lamem_{split}_{fold}.csv'
 # Categorical parameters keep the same options as the original grid search.
 # ---------------------------------------------------------------------------
 SEARCH_SPACE: dict = {
+    # Backbone — HBA-tuned CLIP vs. vanilla openai/clip-vit-large-patch14
+    'backbone':     ['hba', 'vanilla_clip'],
+
     # Architecture — categorical; same options as the original grid
     'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
 
@@ -116,9 +119,15 @@ N_TRIALS_DEFAULT: int = 50
 SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
 _CSV_FIELDS = [
-    'trial_id', 'hidden_dims', 'activation', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
+    'trial_id', 'backbone', 'hidden_dims', 'activation', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
     'mean_val_mse', 'std_val_mse', 'mean_val_rho', 'std_val_rho',
 ]
+
+# HBA backbone config keys not applicable to vanilla CLIP — removed from fold_config
+# when backbone='vanilla_clip' to avoid passing irrelevant args to CLIPFrozenMLP.
+_HBA_ONLY_KEYS: frozenset = frozenset({
+    'backbone_checkpoint', 'backbone', 'vision_layers', 'transformer_layers', 'rank',
+})
 
 
 def _sample_std(values: list) -> float:
@@ -162,6 +171,7 @@ def _objective(
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
     """
     # --- Sample hyperparameters ---
+    backbone:     str   = trial.suggest_categorical('backbone',     SEARCH_SPACE['backbone'])
     hidden_dims:  tuple = trial.suggest_categorical('hidden_dims',  SEARCH_SPACE['hidden_dims'])
     activation:   str   = trial.suggest_categorical('activation',   SEARCH_SPACE['activation'])
     dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
@@ -175,7 +185,7 @@ def _objective(
 
     sweep_stdout.write(
         f'\n[Trial {trial_id}] '
-        f'hidden_dims={hidden_dims}  activation={activation}  dropout={dropout_rate:.3f}'
+        f'backbone={backbone}  hidden_dims={hidden_dims}  activation={activation}  dropout={dropout_rate:.3f}'
         f'  lr={lr:.2e}  wd={weight_decay:.2e}  batch_size={batch_size}\n'
     )
     sweep_stdout.flush()
@@ -184,6 +194,7 @@ def _objective(
     with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
         json.dump(
             {
+                'backbone':     backbone,
                 'hidden_dims':  str(hidden_dims),
                 'activation':   activation,
                 'dropout_rate': dropout_rate,
@@ -218,6 +229,13 @@ def _objective(
                 'log_path':        os.path.join(fold_dir, 'log.txt'),
                 'checkpoint_path': os.path.join(fold_dir, 'checkpoint'),
             }
+            if backbone == 'vanilla_clip':
+                # Switch to the frozen vanilla CLIP backbone; HBA-specific config
+                # keys are not consumed by CLIPFrozenMLP and must be removed to
+                # avoid confusing the pipeline.
+                fold_config['model_type'] = 'clip_frozen_mlp'
+                for k in _HBA_ONLY_KEYS:
+                    fold_config.pop(k, None)
 
             fold_mse, fold_rho = run_mem_training(fold_config)
             fold_mses.append(fold_mse)
@@ -241,7 +259,7 @@ def _objective(
     # Append aggregated result to incremental CSV
     with open(results_csv, 'a', newline='') as f:
         csv.writer(f).writerow([
-            trial_id, str(hidden_dims), activation, f'{dropout_rate:.6f}',
+            trial_id, backbone, str(hidden_dims), activation, f'{dropout_rate:.6f}',
             f'{lr:.2e}', f'{weight_decay:.2e}', batch_size,
             f'{mean_mse:.6f}', f'{std_mse:.6f}',
             f'{mean_rho:.6f}', f'{std_rho:.6f}',
@@ -307,6 +325,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         f'Bayesian search: {n_trials} new trial(s) | TPE sampler | '
         f'{N_FOLDS}-fold CV per trial | DB: {db_path}\n'
         f'Search space:\n'
+        f'  backbone     (categorical): {SEARCH_SPACE["backbone"]}\n'
         f'  hidden_dims  (categorical): {SEARCH_SPACE["hidden_dims"]}\n'
         f'  activation   (categorical): {SEARCH_SPACE["activation"]}\n'
         f'  dropout_rate (uniform):     [{SEARCH_SPACE["dropout_rate"][0]}, '
@@ -338,6 +357,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
                 mean_mse = std_mse = mean_rho = std_rho = float('nan')
             all_results.append({
                 'trial_id':     int(row['trial_id']),
+                'backbone':     row['backbone'],
                 'hidden_dims':  row['hidden_dims'],
                 'activation':   row['activation'],
                 'dropout_rate': float(row['dropout_rate']),
@@ -361,7 +381,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         f' (lower is better):\n\n'
     )
     header = (
-        f"{'Trial':>5}  {'hidden_dims':>18}  {'act':>4}  {'drop':>5}"
+        f"{'Trial':>5}  {'backbone':>12}  {'hidden_dims':>18}  {'act':>4}  {'drop':>5}"
         f"  {'lr':>8}  {'wd':>8}  {'bs':>4}"
         f"  {'mean_mse':>10}  {'std_mse':>9}  {'mean_rho':>9}  {'std_rho':>8}"
     )
@@ -369,7 +389,8 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     sweep_stdout.write('-' * len(header) + '\n')
     for r in valid[:10]:
         sweep_stdout.write(
-            f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['activation']:>4}  {r['dropout_rate']:>5.2f}"
+            f"{r['trial_id']:>5}  {r['backbone']:>12}  {str(r['hidden_dims']):>18}"
+            f"  {r['activation']:>4}  {r['dropout_rate']:>5.2f}"
             f"  {r['lr']:>8.0e}  {r['weight_decay']:>8.0e}  {r['batch_size']:>4}"
             f"  {r['mean_val_mse']:>10.6f}  {r['std_val_mse']:>9.6f}"
             f"  {r['mean_val_rho']:>9.4f}  {r['std_val_rho']:>8.4f}\n"
@@ -379,6 +400,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         best = valid[0]
         sweep_stdout.write('\n' + '=' * 80 + '\n')
         sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
+        sweep_stdout.write(f'  backbone:     {best["backbone"]}\n')
         sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
         sweep_stdout.write(f'  activation:   {best["activation"]}\n')
         sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
