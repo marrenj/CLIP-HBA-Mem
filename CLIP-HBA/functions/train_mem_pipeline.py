@@ -233,13 +233,18 @@ class MLPOnlyHead(nn.Module):
     only the MLP layers, making each training step orders of magnitude faster.
     """
 
+    _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
+
     def __init__(self, hidden_dims: tuple = (256, 128), dropout_rate: float = 0.5,
-                 input_dim: int = 768) -> None:
+                 input_dim: int = 768, activation: str = 'relu') -> None:
         super().__init__()
+        if activation not in self._ACTIVATIONS:
+            raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')
+        act_cls = self._ACTIVATIONS[activation]
         layers = []
         in_dim = input_dim
         for h in hidden_dims:
-            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            layers += [nn.Linear(in_dim, h), act_cls(), nn.Dropout(dropout_rate)]
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
@@ -584,6 +589,7 @@ def _run_mem_training_impl(config, run_timestamp):
         model = MLPOnlyHead(
             hidden_dims=config.get('hidden_dims', (256, 128)),
             dropout_rate=config.get('dropout_rate', 0.5),
+            activation=config.get('activation', 'relu'),
         )
     elif model_type == 'clip_hba_mem':
         model = CLIPHBAMem(

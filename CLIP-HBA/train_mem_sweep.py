@@ -94,6 +94,9 @@ SEARCH_SPACE: dict = {
     # Architecture — categorical; same options as the original grid
     'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
 
+    # Activation function — ReLU (standard) vs GELU (smoother, common in transformers)
+    'activation':   ['relu', 'gelu'],
+
     # Regularisation — continuous uniform; wider than the original [0.3, 0.5]
     'dropout_rate': (0.1, 0.7),
 
@@ -113,7 +116,7 @@ N_TRIALS_DEFAULT: int = 50
 SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
 _CSV_FIELDS = [
-    'trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
+    'trial_id', 'hidden_dims', 'activation', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
     'mean_val_mse', 'std_val_mse', 'mean_val_rho', 'std_val_rho',
 ]
 
@@ -160,6 +163,7 @@ def _objective(
     """
     # --- Sample hyperparameters ---
     hidden_dims:  tuple = trial.suggest_categorical('hidden_dims',  SEARCH_SPACE['hidden_dims'])
+    activation:   str   = trial.suggest_categorical('activation',   SEARCH_SPACE['activation'])
     dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
     lr:           float = trial.suggest_float('lr', *SEARCH_SPACE['lr'], log=True)
     weight_decay: float = trial.suggest_float('weight_decay', *SEARCH_SPACE['weight_decay'], log=True)
@@ -171,7 +175,7 @@ def _objective(
 
     sweep_stdout.write(
         f'\n[Trial {trial_id}] '
-        f'hidden_dims={hidden_dims}  dropout={dropout_rate:.3f}'
+        f'hidden_dims={hidden_dims}  activation={activation}  dropout={dropout_rate:.3f}'
         f'  lr={lr:.2e}  wd={weight_decay:.2e}  batch_size={batch_size}\n'
     )
     sweep_stdout.flush()
@@ -181,6 +185,7 @@ def _objective(
         json.dump(
             {
                 'hidden_dims':  str(hidden_dims),
+                'activation':   activation,
                 'dropout_rate': dropout_rate,
                 'lr':           lr,
                 'weight_decay': weight_decay,
@@ -205,6 +210,7 @@ def _objective(
                 'val_csv':         LAMEM_CSV_PATTERN.format(split='val',   fold=fold),
                 'test_csv':        LAMEM_CSV_PATTERN.format(split='test',  fold=fold),
                 'hidden_dims':     hidden_dims,
+                'activation':      activation,
                 'dropout_rate':    dropout_rate,
                 'lr':              lr,
                 'weight_decay':    weight_decay,
@@ -235,7 +241,7 @@ def _objective(
     # Append aggregated result to incremental CSV
     with open(results_csv, 'a', newline='') as f:
         csv.writer(f).writerow([
-            trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
+            trial_id, str(hidden_dims), activation, f'{dropout_rate:.6f}',
             f'{lr:.2e}', f'{weight_decay:.2e}', batch_size,
             f'{mean_mse:.6f}', f'{std_mse:.6f}',
             f'{mean_rho:.6f}', f'{std_rho:.6f}',
@@ -302,6 +308,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         f'{N_FOLDS}-fold CV per trial | DB: {db_path}\n'
         f'Search space:\n'
         f'  hidden_dims  (categorical): {SEARCH_SPACE["hidden_dims"]}\n'
+        f'  activation   (categorical): {SEARCH_SPACE["activation"]}\n'
         f'  dropout_rate (uniform):     [{SEARCH_SPACE["dropout_rate"][0]}, '
         f'{SEARCH_SPACE["dropout_rate"][1]}]\n'
         f'  lr           (log-uniform): [{SEARCH_SPACE["lr"][0]:.0e}, '
@@ -332,6 +339,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
             all_results.append({
                 'trial_id':     int(row['trial_id']),
                 'hidden_dims':  row['hidden_dims'],
+                'activation':   row['activation'],
                 'dropout_rate': float(row['dropout_rate']),
                 'lr':           float(row['lr']),
                 'weight_decay': float(row['weight_decay']),
@@ -353,7 +361,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         f' (lower is better):\n\n'
     )
     header = (
-        f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
+        f"{'Trial':>5}  {'hidden_dims':>18}  {'act':>4}  {'drop':>5}"
         f"  {'lr':>8}  {'wd':>8}  {'bs':>4}"
         f"  {'mean_mse':>10}  {'std_mse':>9}  {'mean_rho':>9}  {'std_rho':>8}"
     )
@@ -361,7 +369,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     sweep_stdout.write('-' * len(header) + '\n')
     for r in valid[:10]:
         sweep_stdout.write(
-            f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.2f}"
+            f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['activation']:>4}  {r['dropout_rate']:>5.2f}"
             f"  {r['lr']:>8.0e}  {r['weight_decay']:>8.0e}  {r['batch_size']:>4}"
             f"  {r['mean_val_mse']:>10.6f}  {r['std_val_mse']:>9.6f}"
             f"  {r['mean_val_rho']:>9.4f}  {r['std_val_rho']:>8.4f}\n"
@@ -372,6 +380,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         sweep_stdout.write('\n' + '=' * 80 + '\n')
         sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
         sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
+        sweep_stdout.write(f'  activation:   {best["activation"]}\n')
         sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
         sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
         sweep_stdout.write(f'  weight_decay: {best["weight_decay"]:.2e}\n')
