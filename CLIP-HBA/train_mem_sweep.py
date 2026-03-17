@@ -1,31 +1,50 @@
-"""Hyperparameter sweep for the memorability MLP head.
+"""Bayesian hyperparameter search for the memorability MLP head using Optuna.
+
+Replaces the exhaustive grid search with Tree-structured Parzen Estimator (TPE),
+a Bayesian optimisation algorithm that builds a probabilistic model of the
+objective and focuses subsequent trials in promising regions of the search space.
+This is substantially more sample-efficient than grid search: good configurations
+are typically found in 30–60 trials rather than exhaustively enumerating all
+combinations.
 
 Usage
 -----
     cd CLIP-HBA
-    python train_mem_sweep.py
+    python train_mem_sweep.py [--n-trials N] [--resume DB]
 
-Edit BASE_CONFIG (data paths, backbone, device) and SWEEP_GRID (search space)
-below before running.  All 48 combinations are evaluated sequentially on fold 1
-using 20 % of the training data and early-stopping patience of 5, so each run
-is much faster than a full training run.  After the sweep, re-train the winning
-config on the full training set (train_fraction=1.0, patience=10) across all 5
-folds to get final performance numbers.
+Arguments
+---------
+    --n-trials N   Number of Optuna trials to run (default: 50).
+    --resume DB    Path to an existing optuna_study.db to resume a study.
+                   Completed trials are automatically skipped by Optuna;
+                   no manual bookkeeping required.
 
 Outputs
 -------
-  sweep_out/<timestamp>/run_NNN/log.txt  -- per-run training log
-  sweep_out/<timestamp>/sweep_results.csv -- all results sorted by val Spearman rho
+    sweep_out/<timestamp>/run_NNN/log.txt     -- per-trial training log
+    sweep_out/<timestamp>/run_NNN/config.json -- sampled hyperparameters
+    sweep_out/<timestamp>/sweep_results.csv   -- all trials sorted by val Spearman rho
+    sweep_out/<timestamp>/optuna_study.db     -- SQLite study for resuming / analysis
 """
 
 import argparse
 import csv
 import datetime
-import itertools
+import json
+import math
 import os
 import sys
 
 import torch.nn as nn
+
+try:
+    import optuna
+    from optuna.samplers import TPESampler
+except ImportError as _e:
+    raise ImportError(
+        "Optuna is required for Bayesian hyperparameter search.\n"
+        "Install it with:  pip install optuna"
+    ) from _e
 
 from functions.train_mem_pipeline import run_mem_training
 
@@ -54,160 +73,233 @@ BASE_CONFIG = {
 
     # Fixed training settings for the sweep
     'epochs':                  300,
-    'early_stopping_patience': 12,    # shorter than final training (10) to speed up sweep
-    'train_fraction':          0.2,  # subsample 20 % of training data per run
+    'early_stopping_patience': 12,    # shorter than final training to speed up sweep
+    'train_fraction':          0.2,   # subsample 20 % of training data per run
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
-
 }
 
 # ---------------------------------------------------------------------------
-# Search grid   (4 × 2 × 3 × 2 = 48 total combinations)
+# Search space
+#
+# Continuous parameters (lr, dropout_rate) are sampled from distributions,
+# giving the TPE sampler far more flexibility than a fixed grid.
+# Categorical parameters keep the same options as the original grid search.
 # ---------------------------------------------------------------------------
-SWEEP_GRID = {
+SEARCH_SPACE: dict = {
+    # Architecture — categorical; same options as the original grid
     'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
-    'dropout_rate': [0.3, 0.5],
-    'lr':           [1e-4, 5e-5, 1e-5],
-    'batch_size':   [32, 64],
+
+    # Regularisation — continuous uniform; wider than the original [0.3, 0.5]
+    'dropout_rate': (0.1, 0.7),
+
+    # Optimisation — log-uniform; covers the original [1e-5, 1e-4] range and beyond
+    'lr':           (1e-5, 5e-4),
+
+    # Batch size — categorical; extended to include 16 and 128
+    'batch_size':   [16, 32, 64, 128],
 }
 
+N_TRIALS_DEFAULT: int = 50
+
+# New sweep directory (only used when not resuming)
+SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+
+_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'batch_size', 'best_val_rho']
+
+
 # ---------------------------------------------------------------------------
-# Sweep output directory
+# Optuna objective
 # ---------------------------------------------------------------------------
-SWEEP_DIR = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+
+def _objective(
+    trial: 'optuna.Trial',
+    sweep_dir: str,
+    results_csv: str,
+    sweep_stdout,
+) -> float:
+    """Sample hyperparameters, run training, and return negative val Spearman rho.
+
+    Optuna minimises the return value, so we negate rho (higher rho = better).
+
+    Args:
+        trial:        Optuna trial object used for hyperparameter suggestion.
+        sweep_dir:    Root directory for this sweep's per-trial subdirectories.
+        results_csv:  Path to the incremental CSV results file.
+        sweep_stdout: Reference to the real stdout so progress is always visible
+                      even though run_mem_training redirects stdout to a log file.
+
+    Returns:
+        Negative best validation Spearman rho achieved during this trial.
+
+    Raises:
+        Exception: Re-raised after logging so Optuna marks the trial as FAILED.
+    """
+    # --- Sample hyperparameters ---
+    hidden_dims:  tuple = trial.suggest_categorical('hidden_dims',  SEARCH_SPACE['hidden_dims'])
+    dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
+    lr:           float = trial.suggest_float('lr', *SEARCH_SPACE['lr'], log=True)
+    batch_size:   int   = trial.suggest_categorical('batch_size', SEARCH_SPACE['batch_size'])
+
+    trial_id = trial.number
+    run_dir  = os.path.join(sweep_dir, f'run_{trial_id:03d}')
+    os.makedirs(run_dir, exist_ok=True)
+
+    sweep_stdout.write(
+        f'\n[Trial {trial_id}] '
+        f'hidden_dims={hidden_dims}  dropout={dropout_rate:.3f}'
+        f'  lr={lr:.2e}  batch_size={batch_size}\n'
+    )
+    sweep_stdout.flush()
+
+    config = {
+        **BASE_CONFIG,
+        'hidden_dims':     hidden_dims,
+        'dropout_rate':    dropout_rate,
+        'lr':              lr,
+        'batch_size':      batch_size,
+        'log_path':        os.path.join(run_dir, 'log.txt'),
+        'checkpoint_path': os.path.join(run_dir, 'checkpoint'),
+    }
+
+    with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
+        json.dump(
+            {k: str(v) for k, v in config.items() if k != 'criterion'},
+            _f, indent=2,
+        )
+
+    try:
+        best_rho = run_mem_training(config)
+    except Exception as exc:
+        sweep_stdout.write(f'  [ERROR] trial {trial_id} failed: {exc}\n')
+        sweep_stdout.flush()
+        raise  # Let Optuna mark this trial as FAILED
+
+    # Append result to incremental CSV
+    with open(results_csv, 'a', newline='') as f:
+        csv.writer(f).writerow([
+            trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
+            f'{lr:.2e}', batch_size, f'{best_rho:.6f}',
+        ])
+
+    sweep_stdout.write(f'  -> best_val_rho = {best_rho:.4f}\n')
+    sweep_stdout.flush()
+
+    return -best_rho  # minimise negative rho
 
 
-def _load_completed_runs(results_csv):
-    """Return a set of run_ids that already have a non-nan best_val_rho."""
-    import math
-    completed = set()
-    if not os.path.exists(results_csv):
-        return completed
-    with open(results_csv, newline='') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            try:
-                rho = float(row['best_val_rho'])
-                if not math.isnan(rho):
-                    completed.add(int(row['run_id']))
-            except (ValueError, KeyError):
-                pass
-    return completed
+# ---------------------------------------------------------------------------
+# Main sweep entry point
+# ---------------------------------------------------------------------------
 
+def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) -> None:
+    """Run (or resume) a Bayesian hyperparameter search over the MLP head.
 
-def run_sweep(resume_dir=None):
-    import json
-
-    sweep_dir = resume_dir if resume_dir else SWEEP_DIR
+    Args:
+        n_trials:  Number of Optuna trials to execute.
+        resume_db: Path to an existing ``optuna_study.db``.  When provided,
+                   the sweep directory is inferred from the DB's parent folder
+                   and all previously completed trials are loaded automatically.
+    """
+    sweep_dir = os.path.dirname(resume_db) if resume_db else SWEEP_DIR
     os.makedirs(sweep_dir, exist_ok=True)
 
-    # Keep a reference to the real stdout so sweep progress is always visible
-    # even though run_mem_training redirects stdout to a per-run log file.
     sweep_stdout = sys.stdout
 
-    keys = list(SWEEP_GRID.keys())
-    combos = list(itertools.product(*[SWEEP_GRID[k] for k in keys]))
-    n_total = len(combos)
-
     results_csv = os.path.join(sweep_dir, 'sweep_results.csv')
+    db_path     = resume_db if resume_db else os.path.join(sweep_dir, 'optuna_study.db')
+    storage_url = f'sqlite:///{db_path}'
 
-    # On resume, find which runs completed successfully; otherwise write fresh header.
-    if resume_dir:
-        completed_ids = _load_completed_runs(results_csv)
-        sweep_stdout.write(
-            f'[Resume] Found {len(completed_ids)} completed run(s) in {resume_dir}\n'
-        )
-        sweep_stdout.flush()
-    else:
-        completed_ids = set()
+    # Write CSV header only for brand-new studies
+    if not os.path.exists(results_csv):
         with open(results_csv, 'w', newline='') as f:
-            csv.writer(f).writerow(['run_id', *keys, 'best_val_rho'])
+            csv.writer(f).writerow(_CSV_FIELDS)
 
-    results = []
+    # Create (or resume) the Optuna study.
+    # TPESampler is Optuna's Bayesian (TPE) sampler — the default, but made
+    # explicit here with a fixed seed for reproducibility.
+    study = optuna.create_study(
+        study_name='clip_hba_mem_bayesian_sweep',
+        direction='minimize',
+        sampler=TPESampler(seed=BASE_CONFIG['random_seed']),
+        storage=storage_url,
+        load_if_exists=True,  # seamless resume when DB already exists
+    )
 
-    for run_id, values in enumerate(combos):
-        params = dict(zip(keys, values))
-
-        if run_id in completed_ids:
-            sweep_stdout.write(f'\n[Sweep {run_id + 1}/{n_total}] Skipping (already done)\n')
-            sweep_stdout.flush()
-            continue
-
+    n_done = sum(
+        1 for t in study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE
+    )
+    if n_done > 0:
         sweep_stdout.write(
-            f'\n[Sweep {run_id + 1}/{n_total}] '
-            + '  '.join(f'{k}={v}' for k, v in params.items())
-            + '\n'
+            f'[Resume] {n_done} completed trial(s) loaded from {db_path}\n'
         )
-        sweep_stdout.flush()
 
-        run_dir = os.path.join(sweep_dir, f'run_{run_id:03d}')
-        os.makedirs(run_dir, exist_ok=True)
+    sweep_stdout.write(
+        f'Bayesian search: {n_trials} new trial(s) | TPE sampler | '
+        f'DB: {db_path}\n'
+        f'Search space:\n'
+        f'  hidden_dims  (categorical): {SEARCH_SPACE["hidden_dims"]}\n'
+        f'  dropout_rate (uniform):     [{SEARCH_SPACE["dropout_rate"][0]}, '
+        f'{SEARCH_SPACE["dropout_rate"][1]}]\n'
+        f'  lr           (log-uniform): [{SEARCH_SPACE["lr"][0]:.0e}, '
+        f'{SEARCH_SPACE["lr"][1]:.0e}]\n'
+        f'  batch_size   (categorical): {SEARCH_SPACE["batch_size"]}\n\n'
+    )
+    sweep_stdout.flush()
 
-        config = {
-            **BASE_CONFIG,
-            **params,
-            'log_path':        os.path.join(run_dir, 'log.txt'),
-            'checkpoint_path': os.path.join(run_dir, 'checkpoint'),
-        }
+    study.optimize(
+        lambda trial: _objective(trial, sweep_dir, results_csv, sweep_stdout),
+        n_trials=n_trials,
+        catch=(Exception,),
+    )
 
-        with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
-            json.dump(
-                {k: str(v) for k, v in config.items() if k != 'criterion'},
-                _f, indent=2,
-            )
-
-        try:
-            best_rho = run_mem_training(config)
-        except Exception as exc:
-            sweep_stdout.write(f'  [ERROR] run {run_id} failed: {exc}\n')
-            sweep_stdout.flush()
-            best_rho = float('nan')
-
-        # sys.stdout was restored inside run_mem_training; sweep output is safe.
-        results.append({'run_id': run_id, **params, 'best_val_rho': best_rho})
-
-        with open(results_csv, 'a', newline='') as f:
-            csv.writer(f).writerow(
-                [run_id, *[params[k] for k in keys], f'{best_rho:.6f}']
-            )
-
-        sweep_stdout.write(f'  -> best_val_rho = {best_rho:.4f}\n')
-        sweep_stdout.flush()
-
-    # --- Summary ---
-    # Re-read all results (including skipped runs) for the final leaderboard.
+    # --- Final leaderboard ---
     all_results = []
     with open(results_csv, newline='') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
+        for row in csv.DictReader(f):
             try:
                 rho = float(row['best_val_rho'])
             except ValueError:
                 rho = float('nan')
             all_results.append({
-                'run_id':       int(row['run_id']),
-                'hidden_dims':  row['hidden_dims'],
+                'trial_id':    int(row['trial_id']),
+                'hidden_dims': row['hidden_dims'],
                 'dropout_rate': float(row['dropout_rate']),
-                'lr':           float(row['lr']),
-                'batch_size':   int(row['batch_size']),
+                'lr':          float(row['lr']),
+                'batch_size':  int(row['batch_size']),
                 'best_val_rho': rho,
             })
-    all_results.sort(key=lambda r: r['best_val_rho'], reverse=True)
+
+    valid = [r for r in all_results if not math.isnan(r['best_val_rho'])]
+    valid.sort(key=lambda r: r['best_val_rho'], reverse=True)
 
     sweep_stdout.write('\n' + '=' * 65 + '\n')
-    sweep_stdout.write(f'Sweep complete. Full results: {results_csv}\n')
+    sweep_stdout.write(f'Search complete. Full results: {results_csv}\n')
+    sweep_stdout.write(f'Optuna study DB (for resuming / analysis): {db_path}\n')
     sweep_stdout.write('Top 10 configurations by validation Spearman rho:\n\n')
     header = (
-        f"{'Run':>4}  {'hidden_dims':>18}  {'drop':>5}"
+        f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
         f"  {'lr':>8}  {'bs':>4}  {'val_rho':>8}"
     )
     sweep_stdout.write(header + '\n')
     sweep_stdout.write('-' * len(header) + '\n')
-    for r in all_results[:10]:
+    for r in valid[:10]:
         sweep_stdout.write(
-            f"{r['run_id']:>4}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.1f}"
+            f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.2f}"
             f"  {r['lr']:>8.0e}  {r['batch_size']:>4}  {r['best_val_rho']:>8.4f}\n"
         )
+
+    if valid:
+        best = valid[0]
+        sweep_stdout.write('\n' + '=' * 65 + '\n')
+        sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
+        sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
+        sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
+        sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
+        sweep_stdout.write(f'  batch_size:   {best["batch_size"]}\n')
+        sweep_stdout.write(f'  val_rho:      {best["best_val_rho"]:.4f}\n')
+
     sweep_stdout.write('=' * 65 + '\n')
     sweep_stdout.write(
         '\nNext step: copy the winning config into train_mem.py and run with\n'
@@ -216,11 +308,17 @@ def run_sweep(resume_dir=None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Hyperparameter sweep for CLIPHBAMem.')
+    parser = argparse.ArgumentParser(
+        description='Bayesian hyperparameter search for CLIPHBAMem using Optuna TPE.'
+    )
     parser.add_argument(
-        '--resume', metavar='DIR', default=None,
-        help='Path to an existing sweep_out/<timestamp> directory to resume. '
-             'Runs with a valid (non-nan) best_val_rho are skipped; all others are re-run.',
+        '--n-trials', type=int, default=N_TRIALS_DEFAULT, metavar='N',
+        help=f'Number of Optuna trials to run (default: {N_TRIALS_DEFAULT}).',
+    )
+    parser.add_argument(
+        '--resume', metavar='DB', default=None,
+        help='Path to an existing optuna_study.db to resume a previous search. '
+             'All completed trials are loaded automatically; no re-running.',
     )
     args = parser.parse_args()
-    run_sweep(resume_dir=args.resume)
+    run_sweep(n_trials=args.n_trials, resume_db=args.resume)
