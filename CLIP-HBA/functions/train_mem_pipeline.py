@@ -448,7 +448,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     else:
         history_file.close()
 
-    return best_rho
+    return best_val_loss, best_rho
 
 
 def _seed_worker(worker_id):

@@ -105,7 +105,7 @@ N_TRIALS_DEFAULT: int = 50
 # New sweep directory (only used when not resuming)
 SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
-_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'batch_size', 'best_val_rho']
+_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'batch_size', 'best_val_mse', 'best_val_rho']
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +118,12 @@ def _objective(
     results_csv: str,
     sweep_stdout,
 ) -> float:
-    """Sample hyperparameters, run training, and return negative val Spearman rho.
+    """Sample hyperparameters, run training, and return best validation MSE loss.
 
-    Optuna minimises the return value, so we negate rho (higher rho = better).
+    MSE is used as the Optuna objective because it directly drives early stopping
+    and checkpointing inside train_mem_model — the checkpoint saved is the one
+    with the lowest val MSE, so optimising the same quantity is consistent.
+    Spearman rho is logged in the CSV as a secondary diagnostic metric.
 
     Args:
         trial:        Optuna trial object used for hyperparameter suggestion.
@@ -130,7 +133,7 @@ def _objective(
                       even though run_mem_training redirects stdout to a log file.
 
     Returns:
-        Negative best validation Spearman rho achieved during this trial.
+        Best validation MSE loss achieved during this trial (Optuna minimises this).
 
     Raises:
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
@@ -169,23 +172,23 @@ def _objective(
         )
 
     try:
-        best_rho = run_mem_training(config)
+        best_val_mse, best_rho = run_mem_training(config)
     except Exception as exc:
         sweep_stdout.write(f'  [ERROR] trial {trial_id} failed: {exc}\n')
         sweep_stdout.flush()
         raise  # Let Optuna mark this trial as FAILED
 
-    # Append result to incremental CSV
+    # Append result to incremental CSV (both MSE and rho for analysis)
     with open(results_csv, 'a', newline='') as f:
         csv.writer(f).writerow([
             trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
-            f'{lr:.2e}', batch_size, f'{best_rho:.6f}',
+            f'{lr:.2e}', batch_size, f'{best_val_mse:.6f}', f'{best_rho:.6f}',
         ])
 
-    sweep_stdout.write(f'  -> best_val_rho = {best_rho:.4f}\n')
+    sweep_stdout.write(f'  -> best_val_mse = {best_val_mse:.6f}  |  best_val_rho = {best_rho:.4f}\n')
     sweep_stdout.flush()
 
-    return -best_rho  # minimise negative rho
+    return best_val_mse  # minimise MSE directly (consistent with checkpointing criterion)
 
 
 # ---------------------------------------------------------------------------
@@ -259,48 +262,53 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     with open(results_csv, newline='') as f:
         for row in csv.DictReader(f):
             try:
+                mse = float(row['best_val_mse'])
                 rho = float(row['best_val_rho'])
             except ValueError:
+                mse = float('nan')
                 rho = float('nan')
             all_results.append({
-                'trial_id':    int(row['trial_id']),
-                'hidden_dims': row['hidden_dims'],
+                'trial_id':     int(row['trial_id']),
+                'hidden_dims':  row['hidden_dims'],
                 'dropout_rate': float(row['dropout_rate']),
-                'lr':          float(row['lr']),
-                'batch_size':  int(row['batch_size']),
+                'lr':           float(row['lr']),
+                'batch_size':   int(row['batch_size']),
+                'best_val_mse': mse,
                 'best_val_rho': rho,
             })
 
-    valid = [r for r in all_results if not math.isnan(r['best_val_rho'])]
-    valid.sort(key=lambda r: r['best_val_rho'], reverse=True)
+    valid = [r for r in all_results if not math.isnan(r['best_val_mse'])]
+    valid.sort(key=lambda r: r['best_val_mse'])  # ascending: lower MSE is better
 
-    sweep_stdout.write('\n' + '=' * 65 + '\n')
+    sweep_stdout.write('\n' + '=' * 72 + '\n')
     sweep_stdout.write(f'Search complete. Full results: {results_csv}\n')
     sweep_stdout.write(f'Optuna study DB (for resuming / analysis): {db_path}\n')
-    sweep_stdout.write('Top 10 configurations by validation Spearman rho:\n\n')
+    sweep_stdout.write('Top 10 configurations by validation MSE (lower is better):\n\n')
     header = (
         f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
-        f"  {'lr':>8}  {'bs':>4}  {'val_rho':>8}"
+        f"  {'lr':>8}  {'bs':>4}  {'val_mse':>10}  {'val_rho':>8}"
     )
     sweep_stdout.write(header + '\n')
     sweep_stdout.write('-' * len(header) + '\n')
     for r in valid[:10]:
         sweep_stdout.write(
             f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.2f}"
-            f"  {r['lr']:>8.0e}  {r['batch_size']:>4}  {r['best_val_rho']:>8.4f}\n"
+            f"  {r['lr']:>8.0e}  {r['batch_size']:>4}"
+            f"  {r['best_val_mse']:>10.6f}  {r['best_val_rho']:>8.4f}\n"
         )
 
     if valid:
         best = valid[0]
-        sweep_stdout.write('\n' + '=' * 65 + '\n')
+        sweep_stdout.write('\n' + '=' * 72 + '\n')
         sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
         sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
         sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
         sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
         sweep_stdout.write(f'  batch_size:   {best["batch_size"]}\n')
+        sweep_stdout.write(f'  val_mse:      {best["best_val_mse"]:.6f}\n')
         sweep_stdout.write(f'  val_rho:      {best["best_val_rho"]:.4f}\n')
 
-    sweep_stdout.write('=' * 65 + '\n')
+    sweep_stdout.write('=' * 72 + '\n')
     sweep_stdout.write(
         '\nNext step: copy the winning config into train_mem.py and run with\n'
         '  train_fraction=1.0  and  early_stopping_patience=10  across all 5 folds.\n'
