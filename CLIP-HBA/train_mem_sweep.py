@@ -96,6 +96,9 @@ SEARCH_SPACE: dict = {
     # Optimisation — log-uniform; covers the original [1e-5, 1e-4] range and beyond
     'lr':           (1e-5, 5e-4),
 
+    # Regularisation — AdamW weight decay, log-uniform over a wide range
+    'weight_decay': (1e-5, 1e-1),
+
     # Batch size — categorical; extended to include 16 and 128
     'batch_size':   [16, 32, 64, 128],
 }
@@ -105,7 +108,7 @@ N_TRIALS_DEFAULT: int = 50
 # New sweep directory (only used when not resuming)
 SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
-_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'batch_size', 'best_val_mse', 'best_val_rho']
+_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'weight_decay', 'batch_size', 'best_val_mse', 'best_val_rho']
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +145,7 @@ def _objective(
     hidden_dims:  tuple = trial.suggest_categorical('hidden_dims',  SEARCH_SPACE['hidden_dims'])
     dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
     lr:           float = trial.suggest_float('lr', *SEARCH_SPACE['lr'], log=True)
+    weight_decay: float = trial.suggest_float('weight_decay', *SEARCH_SPACE['weight_decay'], log=True)
     batch_size:   int   = trial.suggest_categorical('batch_size', SEARCH_SPACE['batch_size'])
 
     trial_id = trial.number
@@ -151,7 +155,7 @@ def _objective(
     sweep_stdout.write(
         f'\n[Trial {trial_id}] '
         f'hidden_dims={hidden_dims}  dropout={dropout_rate:.3f}'
-        f'  lr={lr:.2e}  batch_size={batch_size}\n'
+        f'  lr={lr:.2e}  wd={weight_decay:.2e}  batch_size={batch_size}\n'
     )
     sweep_stdout.flush()
 
@@ -160,6 +164,7 @@ def _objective(
         'hidden_dims':     hidden_dims,
         'dropout_rate':    dropout_rate,
         'lr':              lr,
+        'weight_decay':    weight_decay,
         'batch_size':      batch_size,
         'log_path':        os.path.join(run_dir, 'log.txt'),
         'checkpoint_path': os.path.join(run_dir, 'checkpoint'),
@@ -182,7 +187,8 @@ def _objective(
     with open(results_csv, 'a', newline='') as f:
         csv.writer(f).writerow([
             trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
-            f'{lr:.2e}', batch_size, f'{best_val_mse:.6f}', f'{best_rho:.6f}',
+            f'{lr:.2e}', f'{weight_decay:.2e}', batch_size,
+            f'{best_val_mse:.6f}', f'{best_rho:.6f}',
         ])
 
     sweep_stdout.write(f'  -> best_val_mse = {best_val_mse:.6f}  |  best_val_rho = {best_rho:.4f}\n')
@@ -247,6 +253,8 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         f'{SEARCH_SPACE["dropout_rate"][1]}]\n'
         f'  lr           (log-uniform): [{SEARCH_SPACE["lr"][0]:.0e}, '
         f'{SEARCH_SPACE["lr"][1]:.0e}]\n'
+        f'  weight_decay (log-uniform): [{SEARCH_SPACE["weight_decay"][0]:.0e}, '
+        f'{SEARCH_SPACE["weight_decay"][1]:.0e}]\n'
         f'  batch_size   (categorical): {SEARCH_SPACE["batch_size"]}\n\n'
     )
     sweep_stdout.flush()
@@ -272,6 +280,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
                 'hidden_dims':  row['hidden_dims'],
                 'dropout_rate': float(row['dropout_rate']),
                 'lr':           float(row['lr']),
+                'weight_decay': float(row['weight_decay']),
                 'batch_size':   int(row['batch_size']),
                 'best_val_mse': mse,
                 'best_val_rho': rho,
@@ -286,14 +295,14 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     sweep_stdout.write('Top 10 configurations by validation MSE (lower is better):\n\n')
     header = (
         f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
-        f"  {'lr':>8}  {'bs':>4}  {'val_mse':>10}  {'val_rho':>8}"
+        f"  {'lr':>8}  {'wd':>8}  {'bs':>4}  {'val_mse':>10}  {'val_rho':>8}"
     )
     sweep_stdout.write(header + '\n')
     sweep_stdout.write('-' * len(header) + '\n')
     for r in valid[:10]:
         sweep_stdout.write(
             f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.2f}"
-            f"  {r['lr']:>8.0e}  {r['batch_size']:>4}"
+            f"  {r['lr']:>8.0e}  {r['weight_decay']:>8.0e}  {r['batch_size']:>4}"
             f"  {r['best_val_mse']:>10.6f}  {r['best_val_rho']:>8.4f}\n"
         )
 
@@ -304,6 +313,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
         sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
         sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
+        sweep_stdout.write(f'  weight_decay: {best["weight_decay"]:.2e}\n')
         sweep_stdout.write(f'  batch_size:   {best["batch_size"]}\n')
         sweep_stdout.write(f'  val_mse:      {best["best_val_mse"]:.6f}\n')
         sweep_stdout.write(f'  val_rho:      {best["best_val_rho"]:.4f}\n')

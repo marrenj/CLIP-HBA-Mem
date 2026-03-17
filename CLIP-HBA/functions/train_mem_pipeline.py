@@ -654,7 +654,11 @@ def _run_mem_training_impl(config, run_timestamp):
         opt_params = _raw_model.mlp_parameters()
     else:
         opt_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(opt_params, lr=config['lr'])
+    optimizer = torch.optim.AdamW(
+        opt_params,
+        lr=config['lr'],
+        weight_decay=config.get('weight_decay', 1e-2),
+    )
 
     print('\nModel Configuration:')
     print('--------------------')
