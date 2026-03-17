@@ -7,6 +7,11 @@ This is substantially more sample-efficient than grid search: good configuration
 are typically found in 30–60 trials rather than exhaustively enumerating all
 combinations.
 
+Each trial trains on all 5 LaMem folds and uses the mean validation MSE across
+folds as the Optuna objective.  This makes the search robust to fold-specific
+variance and eliminates the need for a separate final cross-validation run to
+validate the winning config.
+
 Usage
 -----
     cd CLIP-HBA
@@ -21,10 +26,10 @@ Arguments
 
 Outputs
 -------
-    sweep_out/<timestamp>/run_NNN/log.txt     -- per-trial training log
-    sweep_out/<timestamp>/run_NNN/config.json -- sampled hyperparameters
-    sweep_out/<timestamp>/sweep_results.csv   -- all trials sorted by val Spearman rho
-    sweep_out/<timestamp>/optuna_study.db     -- SQLite study for resuming / analysis
+    sweep_out/<timestamp>/run_NNN/fold_K/log.txt     -- per-fold training log
+    sweep_out/<timestamp>/run_NNN/config.json        -- sampled hyperparameters
+    sweep_out/<timestamp>/sweep_results.csv          -- all trials, mean ± std across folds
+    sweep_out/<timestamp>/optuna_study.db            -- SQLite study for resuming / analysis
 """
 
 import argparse
@@ -54,11 +59,7 @@ from functions.train_mem_pipeline import run_mem_training
 BASE_CONFIG = {
     'model_type': 'clip_hba_mem',  # sweep only covers the CLIPHBAMem head
 
-    # Fold used for the sweep; run the winning config on all 5 folds afterward
-    'fold':      1,
-    'train_csv': './Data/lamem/lamem_train_1.csv',
-    'val_csv':   './Data/lamem/lamem_val_1.csv',
-    'test_csv':  './Data/lamem/lamem_test_1.csv',
+    # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
     'img_root':  './Data/lamem/images/',
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
@@ -74,10 +75,13 @@ BASE_CONFIG = {
     # Fixed training settings for the sweep
     'epochs':                  300,
     'early_stopping_patience': 12,    # shorter than final training to speed up sweep
-    'train_fraction':          0.2,   # subsample 20 % of training data per run
+    'train_fraction':          1.0,   # full training set — epochs are ~3 s with precomputed embeddings
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
 }
+
+N_FOLDS: int = 5
+LAMEM_CSV_PATTERN: str = './Data/lamem/lamem_{split}_{fold}.csv'
 
 # ---------------------------------------------------------------------------
 # Search space
@@ -108,7 +112,19 @@ N_TRIALS_DEFAULT: int = 50
 # New sweep directory (only used when not resuming)
 SWEEP_DIR: str = f'./sweep_out/{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
 
-_CSV_FIELDS = ['trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'weight_decay', 'batch_size', 'best_val_mse', 'best_val_rho']
+_CSV_FIELDS = [
+    'trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
+    'mean_val_mse', 'std_val_mse', 'mean_val_rho', 'std_val_rho',
+]
+
+
+def _sample_std(values: list) -> float:
+    """Return the sample standard deviation of *values*, or 0 if len < 2."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((x - mean) ** 2 for x in values) / (n - 1))
 
 
 # ---------------------------------------------------------------------------
@@ -121,12 +137,13 @@ def _objective(
     results_csv: str,
     sweep_stdout,
 ) -> float:
-    """Sample hyperparameters, run training, and return best validation MSE loss.
+    """Sample hyperparameters, train on all 5 folds, return mean validation MSE.
 
-    MSE is used as the Optuna objective because it directly drives early stopping
-    and checkpointing inside train_mem_model — the checkpoint saved is the one
-    with the lowest val MSE, so optimising the same quantity is consistent.
-    Spearman rho is logged in the CSV as a secondary diagnostic metric.
+    Running all folds per trial makes the objective robust to fold-specific
+    variance and removes the need for a post-hoc cross-validation step to
+    validate the winning config.  MSE is used because it directly drives
+    checkpointing and early stopping inside train_mem_model.  Spearman rho
+    is logged in the CSV as a secondary diagnostic metric.
 
     Args:
         trial:        Optuna trial object used for hyperparameter suggestion.
@@ -136,7 +153,7 @@ def _objective(
                       even though run_mem_training redirects stdout to a log file.
 
     Returns:
-        Best validation MSE loss achieved during this trial (Optuna minimises this).
+        Mean best validation MSE across all folds (Optuna minimises this).
 
     Raises:
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
@@ -159,42 +176,78 @@ def _objective(
     )
     sweep_stdout.flush()
 
-    config = {
-        **BASE_CONFIG,
-        'hidden_dims':     hidden_dims,
-        'dropout_rate':    dropout_rate,
-        'lr':              lr,
-        'weight_decay':    weight_decay,
-        'batch_size':      batch_size,
-        'log_path':        os.path.join(run_dir, 'log.txt'),
-        'checkpoint_path': os.path.join(run_dir, 'checkpoint'),
-    }
-
+    # Save shared hyperparameters once (fold-specific paths are not included)
     with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
         json.dump(
-            {k: str(v) for k, v in config.items() if k != 'criterion'},
+            {
+                'hidden_dims':  str(hidden_dims),
+                'dropout_rate': dropout_rate,
+                'lr':           lr,
+                'weight_decay': weight_decay,
+                'batch_size':   batch_size,
+            },
             _f, indent=2,
         )
 
+    # --- Train on all folds and collect per-fold metrics ---
+    fold_mses: list[float] = []
+    fold_rhos: list[float] = []
+
     try:
-        best_val_mse, best_rho = run_mem_training(config)
+        for fold in range(1, N_FOLDS + 1):
+            fold_dir = os.path.join(run_dir, f'fold_{fold}')
+            os.makedirs(fold_dir, exist_ok=True)
+
+            fold_config = {
+                **BASE_CONFIG,
+                'fold':            fold,
+                'train_csv':       LAMEM_CSV_PATTERN.format(split='train', fold=fold),
+                'val_csv':         LAMEM_CSV_PATTERN.format(split='val',   fold=fold),
+                'test_csv':        LAMEM_CSV_PATTERN.format(split='test',  fold=fold),
+                'hidden_dims':     hidden_dims,
+                'dropout_rate':    dropout_rate,
+                'lr':              lr,
+                'weight_decay':    weight_decay,
+                'batch_size':      batch_size,
+                'log_path':        os.path.join(fold_dir, 'log.txt'),
+                'checkpoint_path': os.path.join(fold_dir, 'checkpoint'),
+            }
+
+            fold_mse, fold_rho = run_mem_training(fold_config)
+            fold_mses.append(fold_mse)
+            fold_rhos.append(fold_rho)
+
+            sweep_stdout.write(
+                f'  fold {fold}/{N_FOLDS}: mse={fold_mse:.6f}  rho={fold_rho:.4f}\n'
+            )
+            sweep_stdout.flush()
+
     except Exception as exc:
-        sweep_stdout.write(f'  [ERROR] trial {trial_id} failed: {exc}\n')
+        sweep_stdout.write(f'  [ERROR] trial {trial_id} failed on fold {fold}: {exc}\n')
         sweep_stdout.flush()
         raise  # Let Optuna mark this trial as FAILED
 
-    # Append result to incremental CSV (both MSE and rho for analysis)
+    mean_mse = sum(fold_mses) / N_FOLDS
+    std_mse  = _sample_std(fold_mses)
+    mean_rho = sum(fold_rhos) / N_FOLDS
+    std_rho  = _sample_std(fold_rhos)
+
+    # Append aggregated result to incremental CSV
     with open(results_csv, 'a', newline='') as f:
         csv.writer(f).writerow([
             trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
             f'{lr:.2e}', f'{weight_decay:.2e}', batch_size,
-            f'{best_val_mse:.6f}', f'{best_rho:.6f}',
+            f'{mean_mse:.6f}', f'{std_mse:.6f}',
+            f'{mean_rho:.6f}', f'{std_rho:.6f}',
         ])
 
-    sweep_stdout.write(f'  -> best_val_mse = {best_val_mse:.6f}  |  best_val_rho = {best_rho:.4f}\n')
+    sweep_stdout.write(
+        f'  -> mean_val_mse = {mean_mse:.6f} ± {std_mse:.6f}'
+        f'  |  mean_val_rho = {mean_rho:.4f} ± {std_rho:.4f}\n'
+    )
     sweep_stdout.flush()
 
-    return best_val_mse  # minimise MSE directly (consistent with checkpointing criterion)
+    return mean_mse  # minimise mean MSE across folds
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +299,7 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
 
     sweep_stdout.write(
         f'Bayesian search: {n_trials} new trial(s) | TPE sampler | '
-        f'DB: {db_path}\n'
+        f'{N_FOLDS}-fold CV per trial | DB: {db_path}\n'
         f'Search space:\n'
         f'  hidden_dims  (categorical): {SEARCH_SPACE["hidden_dims"]}\n'
         f'  dropout_rate (uniform):     [{SEARCH_SPACE["dropout_rate"][0]}, '
@@ -270,11 +323,12 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     with open(results_csv, newline='') as f:
         for row in csv.DictReader(f):
             try:
-                mse = float(row['best_val_mse'])
-                rho = float(row['best_val_rho'])
+                mean_mse = float(row['mean_val_mse'])
+                std_mse  = float(row['std_val_mse'])
+                mean_rho = float(row['mean_val_rho'])
+                std_rho  = float(row['std_val_rho'])
             except ValueError:
-                mse = float('nan')
-                rho = float('nan')
+                mean_mse = std_mse = mean_rho = std_rho = float('nan')
             all_results.append({
                 'trial_id':     int(row['trial_id']),
                 'hidden_dims':  row['hidden_dims'],
@@ -282,20 +336,26 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
                 'lr':           float(row['lr']),
                 'weight_decay': float(row['weight_decay']),
                 'batch_size':   int(row['batch_size']),
-                'best_val_mse': mse,
-                'best_val_rho': rho,
+                'mean_val_mse': mean_mse,
+                'std_val_mse':  std_mse,
+                'mean_val_rho': mean_rho,
+                'std_val_rho':  std_rho,
             })
 
-    valid = [r for r in all_results if not math.isnan(r['best_val_mse'])]
-    valid.sort(key=lambda r: r['best_val_mse'])  # ascending: lower MSE is better
+    valid = [r for r in all_results if not math.isnan(r['mean_val_mse'])]
+    valid.sort(key=lambda r: r['mean_val_mse'])  # ascending: lower MSE is better
 
-    sweep_stdout.write('\n' + '=' * 72 + '\n')
+    sweep_stdout.write('\n' + '=' * 80 + '\n')
     sweep_stdout.write(f'Search complete. Full results: {results_csv}\n')
     sweep_stdout.write(f'Optuna study DB (for resuming / analysis): {db_path}\n')
-    sweep_stdout.write('Top 10 configurations by validation MSE (lower is better):\n\n')
+    sweep_stdout.write(
+        f'Top 10 configurations by mean validation MSE across {N_FOLDS} folds'
+        f' (lower is better):\n\n'
+    )
     header = (
         f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
-        f"  {'lr':>8}  {'wd':>8}  {'bs':>4}  {'val_mse':>10}  {'val_rho':>8}"
+        f"  {'lr':>8}  {'wd':>8}  {'bs':>4}"
+        f"  {'mean_mse':>10}  {'std_mse':>9}  {'mean_rho':>9}  {'std_rho':>8}"
     )
     sweep_stdout.write(header + '\n')
     sweep_stdout.write('-' * len(header) + '\n')
@@ -303,25 +363,30 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
         sweep_stdout.write(
             f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}  {r['dropout_rate']:>5.2f}"
             f"  {r['lr']:>8.0e}  {r['weight_decay']:>8.0e}  {r['batch_size']:>4}"
-            f"  {r['best_val_mse']:>10.6f}  {r['best_val_rho']:>8.4f}\n"
+            f"  {r['mean_val_mse']:>10.6f}  {r['std_val_mse']:>9.6f}"
+            f"  {r['mean_val_rho']:>9.4f}  {r['std_val_rho']:>8.4f}\n"
         )
 
     if valid:
         best = valid[0]
-        sweep_stdout.write('\n' + '=' * 72 + '\n')
+        sweep_stdout.write('\n' + '=' * 80 + '\n')
         sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
         sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
         sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
         sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
         sweep_stdout.write(f'  weight_decay: {best["weight_decay"]:.2e}\n')
         sweep_stdout.write(f'  batch_size:   {best["batch_size"]}\n')
-        sweep_stdout.write(f'  val_mse:      {best["best_val_mse"]:.6f}\n')
-        sweep_stdout.write(f'  val_rho:      {best["best_val_rho"]:.4f}\n')
+        sweep_stdout.write(
+            f'  mean_val_mse: {best["mean_val_mse"]:.6f} ± {best["std_val_mse"]:.6f}\n'
+        )
+        sweep_stdout.write(
+            f'  mean_val_rho: {best["mean_val_rho"]:.4f} ± {best["std_val_rho"]:.4f}\n'
+        )
 
-    sweep_stdout.write('=' * 72 + '\n')
+    sweep_stdout.write('=' * 80 + '\n')
     sweep_stdout.write(
-        '\nNext step: copy the winning config into train_mem.py and run with\n'
-        '  train_fraction=1.0  and  early_stopping_patience=10  across all 5 folds.\n'
+        '\nNext step: copy the winning config into train_mem.py.\n'
+        'The sweep already used all 5 folds — no separate cross-validation run needed.\n'
     )
 
 
