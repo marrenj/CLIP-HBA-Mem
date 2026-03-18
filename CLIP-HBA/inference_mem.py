@@ -7,6 +7,10 @@ Usage examples:
     # All 5 LaMem folds
     python inference_mem.py --dataset lamem --fold all
 
+    # All 58,741 LaMem images (requires explicit --checkpoint)
+    python inference_mem.py --dataset lamem --fold all_lamem \
+        --checkpoint ./models/clip_hba_mem_fold1.pth
+
     # Vanilla frozen CLIP + MLP
     python inference_mem.py --dataset lamem --fold 1 \
         --model_type clip_frozen_mlp \
@@ -56,7 +60,10 @@ def build_standardised_csv(dataset, output_path, **kwargs):
     """
     if dataset == 'lamem':
         fold = kwargs['fold']
-        csv_path = f'./Data/lamem/lamem_test_{fold}.csv'
+        if fold == 'all_lamem':
+            csv_path = './Data/lamem/all_lamem.csv'
+        else:
+            csv_path = f'./Data/lamem/lamem_test_{fold}.csv'
         return csv_path, './Data/lamem/images/'
 
     elif dataset == 'things':
@@ -142,7 +149,10 @@ def run_inference(config):
     summary_rows = []
 
     for fold in folds:
-        fold_suffix = f'_fold{fold}' if dataset_label == 'lamem' else ''
+        if dataset_label == 'lamem':
+            fold_suffix = '_all_lamem' if fold == 'all_lamem' else f'_fold{fold}'
+        else:
+            fold_suffix = ''
         tmp_csv = os.path.join(out_dir, f'_tmp_{dataset_label}{fold_suffix}.csv')
 
         csv_path, img_root = build_standardised_csv(
@@ -157,8 +167,13 @@ def run_inference(config):
 
         # Resolve fold placeholder in checkpoint path
         checkpoint = config['checkpoint']
-        if dataset_label == 'lamem' and '{fold}' in checkpoint:
+        if dataset_label == 'lamem' and fold != 'all_lamem' and '{fold}' in checkpoint:
             checkpoint = checkpoint.replace('{fold}', str(fold))
+        elif fold == 'all_lamem' and '{fold}' in checkpoint:
+            raise ValueError(
+                '--fold all_lamem requires an explicit --checkpoint path '
+                '(the {fold} placeholder cannot be resolved for all_lamem).'
+            )
 
         model = _build_model(config)
 
@@ -244,7 +259,10 @@ def main():
                         choices=['lamem', 'things', 'memcat'],
                         help='Dataset to run inference on.')
     parser.add_argument('--fold', default='1',
-                        help='LaMem fold (1-5 or "all"). Ignored for other datasets.')
+                        help='LaMem fold: 1-5, "all" (all 5 test folds), or "all_lamem" '
+                             '(all 58,741 images from all_lamem.csv). '
+                             '"all_lamem" requires an explicit --checkpoint path. '
+                             'Ignored for non-LaMem datasets.')
     parser.add_argument('--things_img_dir', default='./Data/Things1854',
                         help='Directory containing THINGS images (for --dataset things).')
 
@@ -286,6 +304,8 @@ def main():
     if args.dataset == 'lamem':
         if args.fold == 'all':
             folds = [1, 2, 3, 4, 5]
+        elif args.fold == 'all_lamem':
+            folds = ['all_lamem']
         else:
             folds = [int(args.fold)]
     else:
