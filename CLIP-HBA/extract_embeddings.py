@@ -212,14 +212,14 @@ def main() -> None:
     )
     parser.add_argument(
         '--model_type',
-        default=os.environ.get('MODEL_TYPE', 'clip_hba_mem'),
+        default=os.environ.get('MODEL_TYPE', 'clip_frozen_mlp'),
         choices=['clip_hba_mem', 'clip_frozen_mlp'],
         help='Which frozen backbone to extract from.',
     )
     parser.add_argument(
         '--fold',
         type=int,
-        default=int(os.environ.get('LAMEM_FOLD', 1)),
+        default=int(os.environ.get('LAMEM_FOLD', 5)),
         help='LaMem fold number (1-5).',
     )
     parser.add_argument(

@@ -361,6 +361,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                     fold=1, preds_dir=None, run_timestamp=None):
     """Train model and return the Spearman ρ recorded at the best-loss checkpoint."""
     run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    checkpoint_path = str(pathlib.Path(checkpoint_path))
     if preds_dir is not None:
         preds_dir = os.path.join(preds_dir, run_timestamp)
         os.makedirs(preds_dir, exist_ok=True)
@@ -428,7 +429,9 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
             best_val_loss = avg_val_loss
             best_rho = rho  # record rho at the checkpoint epoch
             epochs_no_improve = 0
-            torch.save(model.state_dict(), f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth')
+            chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
+            os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
+            torch.save(model.state_dict(), chk_path)
             print(f'  -> Checkpoint saved (epoch {epoch+1})')
         else:
             epochs_no_improve += 1

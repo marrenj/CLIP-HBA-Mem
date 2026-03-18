@@ -1,11 +1,21 @@
 """Run memorability inference on LaMem, THINGS, or MemCat datasets.
 
 Usage examples:
-    # LaMem test set (fold 1)
+    # LaMem test set (fold 1) — CLIP-HBA-Mem (default)
     python inference_mem.py --dataset lamem --fold 1
 
     # All 5 LaMem folds
     python inference_mem.py --dataset lamem --fold all
+
+    # Vanilla frozen CLIP + MLP
+    python inference_mem.py --dataset lamem --fold 1 \
+        --model_type clip_frozen_mlp \
+        --checkpoint ./models/clip_frozen_mlp_fold{fold}.pth
+
+    # PerceptCLIP (CLIP + LoRA + MLP)
+    python inference_mem.py --dataset lamem --fold 1 \
+        --model_type perceptclip \
+        --checkpoint ./models/perceptclip_fold{fold}.pth
 
     # THINGS dataset (requires --things_img_dir)
     python inference_mem.py --dataset things --things_img_dir ./Data/Things1854
@@ -32,7 +42,10 @@ from PIL import Image
 from tqdm import tqdm
 from scipy.stats import spearmanr
 
-from functions.train_mem_pipeline import CLIPHBAMem, MemDataset
+from functions.train_mem_pipeline import (
+    CLIPHBAMem, CLIPFrozenMLP, clip_lora_model,
+    MemDataset, PerceptCLIPDataset,
+)
 from functions.train_behavior_things_pipeline import seed_everything
 
 
@@ -76,10 +89,50 @@ def build_standardised_csv(dataset, output_path, **kwargs):
         raise ValueError(f'Unknown dataset: {dataset!r}')
 
 
+def _build_dataset(model_type: str, csv_path: str, img_root: str):
+    """Return the correct Dataset class for the given model type.
+
+    clip_frozen_mlp and perceptclip were trained with standard CLIP
+    normalisation (PerceptCLIPDataset).  clip_hba_mem uses the CLIP-HBA
+    normalisation (MemDataset).
+    """
+    if model_type in ('perceptclip', 'clip_frozen_mlp'):
+        return PerceptCLIPDataset(csv_file=csv_path, img_root=img_root)
+    return MemDataset(csv_file=csv_path, img_root=img_root)
+
+
+def _build_model(config: dict) -> nn.Module:
+    """Instantiate the correct model class and return it (weights not yet loaded)."""
+    model_type = config['model_type']
+    hidden_dims = tuple(config['hidden_dims'])
+    dropout_rate = config['dropout_rate']
+
+    if model_type == 'clip_hba_mem':
+        return CLIPHBAMem(
+            backbone_checkpoint=config['backbone_checkpoint'],
+            backbone_name=config['backbone'],
+            vision_layers=config['vision_layers'],
+            transformer_layers=config['transformer_layers'],
+            rank=config['rank'],
+            hidden_dims=hidden_dims,
+            dropout_rate=dropout_rate,
+        )
+    elif model_type == 'clip_frozen_mlp':
+        return CLIPFrozenMLP(
+            hidden_dims=hidden_dims,
+            dropout_rate=dropout_rate,
+        )
+    elif model_type == 'perceptclip':
+        return clip_lora_model()
+    else:
+        raise ValueError(f'Unknown model_type: {model_type!r}')
+
+
 def run_inference(config):
     seed_everything(config['random_seed'])
 
     dataset_label = config['dataset']
+    model_type = config['model_type']
     folds = config['folds']
     import datetime
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -96,40 +149,37 @@ def run_inference(config):
             dataset_label, tmp_csv, fold=fold,
             things_img_dir=config.get('things_img_dir', ''))
 
-        ds = MemDataset(csv_file=csv_path, img_root=img_root)
+        ds = _build_dataset(model_type, csv_path, img_root)
         print(f'\n[{dataset_label.upper()}{fold_suffix}] {len(ds)} images')
 
         loader = DataLoader(ds, batch_size=config['batch_size'],
                             shuffle=False, num_workers=4, pin_memory=True)
 
-        # Build model
+        # Resolve fold placeholder in checkpoint path
         checkpoint = config['checkpoint']
         if dataset_label == 'lamem' and '{fold}' in checkpoint:
             checkpoint = checkpoint.replace('{fold}', str(fold))
 
-        model = CLIPHBAMem(
-            backbone_checkpoint=config['backbone_checkpoint'],
-            backbone_name=config['backbone'],
-            vision_layers=config['vision_layers'],
-            transformer_layers=config['transformer_layers'],
-            rank=config['rank'],
-            hidden_dims=tuple(config['hidden_dims']),
-            dropout_rate=config['dropout_rate'],
-        )
+        model = _build_model(config)
 
         state_dict = torch.load(checkpoint, map_location='cpu')
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 
-        # Remap legacy fc1/fc2/fc3 keys (old MLP class) to mlp_head Sequential indices
-        _fc_to_idx = {'fc1': 'mlp_head.0', 'fc2': 'mlp_head.3', 'fc3': 'mlp_head.6'}
-        state_dict = {
-            (_fc_to_idx[parts[0]] + '.' + '.'.join(parts[1:])
-             if (parts := k.split('.'))[0] in _fc_to_idx else k): v
-            for k, v in state_dict.items()
-        }
+        # Remap legacy fc1/fc2/fc3 keys (old MLP class) to mlp_head Sequential indices.
+        # Only applies to clip_hba_mem and clip_frozen_mlp checkpoints.
+        if model_type in ('clip_hba_mem', 'clip_frozen_mlp'):
+            _fc_to_idx = {'fc1': 'mlp_head.0', 'fc2': 'mlp_head.3', 'fc3': 'mlp_head.6'}
+            state_dict = {
+                (_fc_to_idx[parts[0]] + '.' + '.'.join(parts[1:])
+                 if (parts := k.split('.'))[0] in _fc_to_idx else k): v
+                for k, v in state_dict.items()
+            }
 
-        model.load_state_dict(state_dict)
-        print(f'[Model] Loaded checkpoint: {checkpoint}')
+        if model_type in ('clip_frozen_mlp', 'perceptclip'):
+            model.load_state_dict(state_dict, strict=False)
+        else:
+            model.load_state_dict(state_dict)
+        print(f'[Model] Loaded {model_type} checkpoint: {checkpoint}')
 
         device = torch.device(config['device'])
         model.to(device)
@@ -164,6 +214,7 @@ def run_inference(config):
 
         summary_rows.append({
             'dataset': dataset_label,
+            'model_type': model_type,
             'fold': fold if fold is not None else '',
             'n_images': len(ds),
             'spearman_rho': rho,
@@ -187,7 +238,7 @@ def run_inference(config):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Run memorability inference with a trained CLIP-HBA model.')
+        description='Run memorability inference with a trained memorability model.')
 
     parser.add_argument('--dataset', required=True,
                         choices=['lamem', 'things', 'memcat'],
@@ -197,16 +248,27 @@ def main():
     parser.add_argument('--things_img_dir', default='./Data/Things1854',
                         help='Directory containing THINGS images (for --dataset things).')
 
+    parser.add_argument('--model_type', default='clip_hba_mem',
+                        choices=['clip_hba_mem', 'clip_frozen_mlp', 'perceptclip'],
+                        help='Model architecture to use for inference.')
     parser.add_argument('--checkpoint', default='./models/clip_hba_mem_fold{fold}.pth',
                         help='Path to trained model checkpoint. Use {fold} as placeholder '
                              'for LaMem fold number.')
+
+    # clip_hba_mem-only backbone args (ignored for clip_frozen_mlp / perceptclip)
     parser.add_argument('--backbone_checkpoint',
                         default='./Data/lamem/epoch97_dora_params.pth',
-                        help='Path to frozen CLIP-HBA backbone weights.')
-    parser.add_argument('--backbone', default='ViT-L/14')
-    parser.add_argument('--vision_layers', type=int, default=2)
-    parser.add_argument('--transformer_layers', type=int, default=1)
-    parser.add_argument('--rank', type=int, default=32)
+                        help='Path to frozen CLIP-HBA backbone weights '
+                             '(clip_hba_mem only; ignored for other model types).')
+    parser.add_argument('--backbone', default='ViT-L/14',
+                        help='CLIP backbone name (clip_hba_mem only).')
+    parser.add_argument('--vision_layers', type=int, default=2,
+                        help='DoRA vision layers (clip_hba_mem only).')
+    parser.add_argument('--transformer_layers', type=int, default=1,
+                        help='DoRA transformer layers (clip_hba_mem only).')
+    parser.add_argument('--rank', type=int, default=32,
+                        help='DoRA rank (clip_hba_mem only).')
+
     parser.add_argument('--hidden_dims', nargs='+', type=int, default=[512, 256],
                         help='MLP hidden layer dimensions (e.g. 512 256).')
     parser.add_argument('--dropout_rate', type=float, default=0.5)
@@ -233,6 +295,7 @@ def main():
         'dataset': args.dataset,
         'folds': folds,
         'things_img_dir': args.things_img_dir,
+        'model_type': args.model_type,
         'checkpoint': args.checkpoint,
         'backbone_checkpoint': args.backbone_checkpoint,
         'backbone': args.backbone,
