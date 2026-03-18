@@ -35,6 +35,7 @@ Outputs
 import argparse
 import csv
 import datetime
+import ast
 import json
 import math
 import os
@@ -64,21 +65,21 @@ BASE_CONFIG = {
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
     'img_root':  './Data/lamem/images/',
+    'embeddings_dir': './Data/lamem/embeddings/',
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
-    # Only used when model_type='clip_hba_mem'; ignored for clip_frozen_mlp.
-    'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
-    'backbone':            'ViT-L/14',
-    'vision_layers':       2,
-    'transformer_layers':  1,
-    'rank':                32,
+    #'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
+    #'backbone':            'ViT-L/14',
+    #'vision_layers':       2,
+    #'transformer_layers':  1,
+    #'rank':                32,
 
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 0,
+    'cuda': 1,
 
     # Fixed training settings for the sweep
     'epochs':                  300,
-    'early_stopping_patience': 12,    # shorter than final training to speed up sweep
+    'early_stopping_patience': 20,    # shorter than final training to speed up sweep
     'train_fraction':          1.0,   # full training set — epochs are ~3 s with precomputed embeddings
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
@@ -96,7 +97,7 @@ LAMEM_CSV_PATTERN: str = './Data/lamem/lamem_{split}_{fold}.csv'
 # ---------------------------------------------------------------------------
 SEARCH_SPACE: dict = {
     # Architecture — categorical; same options as the original grid
-    'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
+    'hidden_dims':  ['(512, 256)', '(256, 128)', '(512, 256, 128)', '(256,)'],
 
     # Regularisation — continuous uniform; wider than the original [0.3, 0.5]
     'dropout_rate': (0.1, 0.7),
@@ -108,7 +109,7 @@ SEARCH_SPACE: dict = {
     'weight_decay': (1e-5, 1e-1),
 
     # Batch size — categorical; extended to include 16 and 128
-    'batch_size':   [16, 32, 64, 128],
+    'batch_size':   [32, 64, 128, 256],
 }
 
 N_TRIALS_DEFAULT: int = 50
@@ -163,7 +164,10 @@ def _objective(
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
     """
     # --- Sample hyperparameters ---
-    hidden_dims:  tuple = trial.suggest_categorical('hidden_dims',  SEARCH_SPACE['hidden_dims'])
+    backbone:     str   = trial.suggest_categorical('backbone',     SEARCH_SPACE['backbone'])
+    hidden_dims:  tuple = ast.literal_eval(
+        trial.suggest_categorical('hidden_dims', SEARCH_SPACE['hidden_dims'])
+    )
     dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
     lr:           float = trial.suggest_float('lr', *SEARCH_SPACE['lr'], log=True)
     weight_decay: float = trial.suggest_float('weight_decay', *SEARCH_SPACE['weight_decay'], log=True)
@@ -257,6 +261,70 @@ def _objective(
 # Main sweep entry point
 # ---------------------------------------------------------------------------
 
+def _write_sweep_config(sweep_dir: str, n_trials: int, resumed: bool) -> None:
+    """Write (or update) sweep_config.json with metadata for this sweep run.
+
+    On a fresh sweep the full configuration is written.  On resume, a compact
+    event record is appended to the existing file so the full history of runs
+    against this study is preserved.
+
+    Args:
+        sweep_dir: Root directory of the sweep (contains the Optuna DB).
+        n_trials:  Number of trials requested for this invocation.
+        resumed:   True when continuing an existing study, False for a fresh one.
+    """
+    import subprocess
+
+    config_path = os.path.join(sweep_dir, 'sweep_config.json')
+
+    # Serialisable subset of BASE_CONFIG — exclude nn.Module and other non-JSON types.
+    base_config_serialisable = {
+        k: v for k, v in BASE_CONFIG.items()
+        if isinstance(v, (str, int, float, bool, type(None)))
+    }
+
+    try:
+        git_hash: str | None = subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        git_hash = None
+
+    timestamp = datetime.datetime.now().isoformat(timespec='seconds')
+
+    if not resumed:
+        config: dict = {
+            'started_at':        timestamp,
+            'n_trials_requested': n_trials,
+            'model_type':        BASE_CONFIG.get('model_type', 'unknown'),
+            'n_folds':           N_FOLDS,
+            'lamem_csv_pattern': LAMEM_CSV_PATTERN,
+            'base_config':       base_config_serialisable,
+            'search_space': {
+                k: list(v) if isinstance(v, tuple) else v
+                for k, v in SEARCH_SPACE.items()
+            },
+            'optuna_sampler':    'TPESampler',
+            'python_version':    sys.version,
+            'git_commit':        git_hash,
+            'resume_events':     [],
+        }
+    else:
+        with open(config_path, encoding='utf-8') as _f:
+            config = json.load(_f)
+        config.setdefault('resume_events', []).append({
+            'resumed_at':         timestamp,
+            'n_trials_requested': n_trials,
+            'git_commit':         git_hash,
+        })
+
+    with open(config_path, 'w', encoding='utf-8') as _f:
+        json.dump(config, _f, indent=2)
+
+
+
 def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) -> None:
     """Run (or resume) a Bayesian hyperparameter search over the MLP head.
 
@@ -268,6 +336,8 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
     """
     sweep_dir = os.path.dirname(resume_db) if resume_db else SWEEP_DIR
     os.makedirs(sweep_dir, exist_ok=True)
+
+    _write_sweep_config(sweep_dir, n_trials, resumed=resume_db is not None)
 
     sweep_stdout = sys.stdout
 

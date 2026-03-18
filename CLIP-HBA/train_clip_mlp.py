@@ -4,7 +4,7 @@ import os
 
 
 def main():
-    fold = int(os.environ.get('LAMEM_FOLD', 1))
+    fold = int(os.environ.get('LAMEM_FOLD', 5))
     model_type = os.environ.get('MODEL_TYPE', 'clip_frozen_mlp')
     img_root = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
     cuda_device = int(os.environ.get('CUDA_DEVICE', 1))
@@ -24,20 +24,20 @@ def main():
         # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
         # Run extract_embeddings.slurm once to populate this directory, then
         # uncomment the line below to skip backbone inference during training.
-        # 'embeddings_dir': './Data/lamem/embeddings/',
+        'embeddings_dir': './Data/lamem/embeddings/',
 
         # --- Device ---
         'cuda': cuda_device,
 
         # --- MLP head ---
-        'hidden_dims':  (512, 256),
+        'hidden_dims':  (256, 128),
         'dropout_rate': 0.5,
 
         # --- Training ---
         'epochs':                  300,
         'batch_size':              32,
         'lr':                      5e-5,
-        'early_stopping_patience': 10,
+        'early_stopping_patience': 20,
         'checkpoint_path':         './models/clip_frozen_mlp',
         'random_seed':             1,
         'criterion':               nn.MSELoss(),
