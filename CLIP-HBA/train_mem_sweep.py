@@ -65,14 +65,14 @@ BASE_CONFIG = {
     'embeddings_dir': './Data/lamem/embeddings/',
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
-    'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
-    'backbone':            'ViT-L/14',
-    'vision_layers':       2,
-    'transformer_layers':  1,
-    'rank':                32,
+    #'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
+    #'backbone':            'ViT-L/14',
+    #'vision_layers':       2,
+    #'transformer_layers':  1,
+    #'rank':                32,
 
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 0,
+    'cuda': 1,
 
     # Fixed training settings for the sweep
     'epochs':                  300,
