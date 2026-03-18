@@ -1,1 +1,0 @@
-trial_id,hidden_dims,dropout_rate,lr,weight_decay,batch_size,mean_val_mse,std_val_mse,mean_val_rho,std_val_rho
