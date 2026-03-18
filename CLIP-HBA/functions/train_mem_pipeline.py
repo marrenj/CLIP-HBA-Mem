@@ -183,8 +183,13 @@ class CLIPFrozenMLP(nn.Module):
     MLP head on top of the 768-dim projected embeddings.
     """
 
-    def __init__(self, hidden_dims=(512, 256), dropout_rate=0.5):
+    _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
+
+    def __init__(self, hidden_dims=(512, 256), dropout_rate=0.5, activation: str = 'relu'):
         super().__init__()
+        if activation not in self._ACTIVATIONS:
+            raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')
+        act_cls = self._ACTIVATIONS[activation]
 
         model_name = 'openai/clip-vit-large-patch14'
         clip_model = CLIPModel.from_pretrained(model_name)
@@ -203,11 +208,11 @@ class CLIPFrozenMLP(nn.Module):
         layers = []
         in_dim = 768
         for h in hidden_dims:
-            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            layers += [nn.Linear(in_dim, h), act_cls(), nn.Dropout(dropout_rate)]
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
-        print(f'[MLP] hidden_dims={hidden_dims}  dropout={dropout_rate}')
+        print(f'[MLP] hidden_dims={hidden_dims}  activation={activation}  dropout={dropout_rate}')
 
     def train(self, mode=True):
         super().train(mode)
@@ -233,13 +238,18 @@ class MLPOnlyHead(nn.Module):
     only the MLP layers, making each training step orders of magnitude faster.
     """
 
+    _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
+
     def __init__(self, hidden_dims: tuple = (256, 128), dropout_rate: float = 0.5,
-                 input_dim: int = 768) -> None:
+                 input_dim: int = 768, activation: str = 'relu') -> None:
         super().__init__()
+        if activation not in self._ACTIVATIONS:
+            raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')
+        act_cls = self._ACTIVATIONS[activation]
         layers = []
         in_dim = input_dim
         for h in hidden_dims:
-            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout_rate)]
+            layers += [nn.Linear(in_dim, h), act_cls(), nn.Dropout(dropout_rate)]
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
@@ -584,6 +594,7 @@ def _run_mem_training_impl(config, run_timestamp):
         model = MLPOnlyHead(
             hidden_dims=config.get('hidden_dims', (256, 128)),
             dropout_rate=config.get('dropout_rate', 0.5),
+            activation=config.get('activation', 'relu'),
         )
     elif model_type == 'clip_hba_mem':
         model = CLIPHBAMem(
@@ -599,6 +610,7 @@ def _run_mem_training_impl(config, run_timestamp):
         model = CLIPFrozenMLP(
             hidden_dims=config.get('hidden_dims', (512, 256)),
             dropout_rate=config.get('dropout_rate', 0.5),
+            activation=config.get('activation', 'relu'),
         )
     elif model_type == 'perceptclip':
         model = clip_lora_model()
