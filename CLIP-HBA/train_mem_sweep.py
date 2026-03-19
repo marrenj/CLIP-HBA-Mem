@@ -61,7 +61,7 @@ BASE_CONFIG = {
     # Set model_type to control which backbone is used for the sweep:
     #   'clip_hba_mem'    — HBA-tuned CLIP backbone (requires backbone_checkpoint)
     #   'clip_frozen_mlp' — vanilla openai/clip-vit-large-patch14
-    'model_type': 'clip_hba_mem',
+    'model_type': 'clip_frozen_mlp',
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
     'img_root':  './Data/lamem/images/',
@@ -164,7 +164,6 @@ def _objective(
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
     """
     # --- Sample hyperparameters ---
-    backbone:     str   = trial.suggest_categorical('backbone',     SEARCH_SPACE['backbone'])
     hidden_dims:  tuple = ast.literal_eval(
         trial.suggest_categorical('hidden_dims', SEARCH_SPACE['hidden_dims'])
     )

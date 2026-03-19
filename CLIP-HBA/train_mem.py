@@ -6,7 +6,7 @@ def main():
     fold = int(os.environ.get('LAMEM_FOLD', 1))
     model_type = os.environ.get('MODEL_TYPE', 'clip_hba_mem')
     config = {
-        'model_type': model_type,  # 'clip_hba_mem' | 'perceptclip'
+        'model_type': 'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
 
         # --- Data ---
         'fold':      fold,
@@ -20,7 +20,7 @@ def main():
         # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
         # Run extract_embeddings.slurm once to populate this directory, then
         # uncomment the line below to skip backbone inference during training.
-        # 'embeddings_dir': './Data/lamem/embeddings/',
+        'embeddings_dir': './Data/lamem/embeddings/',
  
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
@@ -30,16 +30,17 @@ def main():
         'rank':                32,
 
         # --- Device ---
-        'cuda': int(os.environ.get('CUDA_DEVICE', -1)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
+        'cuda': int(os.environ.get('CUDA_DEVICE', 0)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
         # --- MLP head ---
-        'hidden_dims':   (256, 128),
-        'dropout_rate':  0.5,
+        'hidden_dims':   (512, 256),
+        'dropout_rate':  0.585585,
 
         # --- Training ---
         'epochs':                   300,
-        'batch_size':               32,
-        'lr':                       1e-5,
+        'batch_size':               128,
+        'lr':                       3.8e-5,
+        'weight_decay':             5.36e-4,
         'early_stopping_patience':  20,
         'checkpoint_path':          './models/clip_hba_mem',
         'random_seed':              1,

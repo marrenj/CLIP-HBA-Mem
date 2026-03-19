@@ -30,13 +30,14 @@ def main():
         'cuda': cuda_device,
 
         # --- MLP head ---
-        'hidden_dims':  (256, 128),
-        'dropout_rate': 0.5,
+        'hidden_dims':  (512, 256),
+        'dropout_rate': 0.625732,
 
         # --- Training ---
         'epochs':                  300,
-        'batch_size':              32,
-        'lr':                      5e-5,
+        'batch_size':              256,
+        'lr':                      8.1e-5,
+        'weight_decay':            0.0205,
         'early_stopping_patience': 20,
         'checkpoint_path':         './models/clip_frozen_mlp',
         'random_seed':             1,

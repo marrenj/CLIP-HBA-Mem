@@ -193,7 +193,7 @@ def run_inference(config):
         if model_type in ('clip_frozen_mlp', 'perceptclip'):
             model.load_state_dict(state_dict, strict=False)
         else:
-            model.load_state_dict(state_dict)
+            model.load_state_dict(state_dict, strict=False)
         print(f'[Model] Loaded {model_type} checkpoint: {checkpoint}')
 
         device = torch.device(config['device'])
