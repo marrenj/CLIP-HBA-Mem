@@ -2,27 +2,44 @@ from functions.train_mem_pipeline import run_mem_training
 import torch.nn as nn
 import os
 
+
 def main():
-    fold = int(os.environ.get('LAMEM_FOLD', 1))
-    model_type = os.environ.get('MODEL_TYPE', 'clip_hba_mem')
+    training_data = os.environ.get('TRAINING_DATA', 'lamem')  # 'lamem' | 'combined_lamem_memcat'
+    fold = int(os.environ.get('FOLD', 1))
+
+    if training_data == 'lamem':
+        train_csv = f'./Data/lamem/lamem_train_{fold}.csv'
+        val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
+        test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
+        img_root  = './Data/lamem/images/'
+    elif training_data == 'combined_lamem_memcat':
+        train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
+        val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
+        test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        img_root  = {'lamem':  './Data/lamem/images/',
+                     'memcat': './Data/memcat/images/'}
+    else:
+        raise ValueError(f"Unknown TRAINING_DATA: {training_data!r}. "
+                         f"Choose 'lamem' or 'combined_lamem_memcat'.")
+
     config = {
         'model_type':    'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
-        'training_data': 'lamem',
+        'training_data': training_data,
 
         # --- Data ---
         'fold':      fold,
-        'train_csv': f'./Data/lamem/lamem_train_{fold}.csv',   # columns: image_path, score
-        'val_csv':   f'./Data/lamem/lamem_val_{fold}.csv',     # columns: image_path, score
-        'test_csv':  f'./Data/lamem/lamem_test_{fold}.csv',    # columns: image_path, score
-        'img_root':  os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),  # str: prepended to image_path
+        'train_csv': train_csv,
+        'val_csv':   val_csv,
+        'test_csv':  test_csv,
+        'img_root':  img_root,
         'preds_dir': './preds/',
         'log_path':  './logs/mem.log',
 
         # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
         # Run extract_embeddings.slurm once to populate this directory, then
         # uncomment the line below to skip backbone inference during training.
-        'embeddings_dir': './Data/lamem/embeddings/',
- 
+        # 'embeddings_dir': './Data/lamem/embeddings/',
+
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
         'backbone':            'ViT-L/14',
@@ -47,7 +64,7 @@ def main():
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }
- 
+
     run_mem_training(config)
 
 
