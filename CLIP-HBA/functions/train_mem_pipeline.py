@@ -34,11 +34,20 @@ class MemDataset(Dataset):
     """Dataset for image memorability prediction.
 
     Expects a CSV with columns:
-        image_path  - absolute path or relative to img_root
+        image_path  - filename relative to img_root (or absolute path)
         score       - memorability score in [0, 1]
+
+    Combined LaMem + MemCat splits use different column names and two image
+    roots.  Pass the columns ``set``, ``file``, and ``mem`` in the CSV and
+    supply ``img_root`` as a dict mapping set names to directories, e.g.::
+
+        img_root={'lamem': './Data/lamem/images/',
+                  'memcat': './Data/memcat/images/'}
+
+    The dict keys must match the values in the ``set`` column.
     """
 
-    def __init__(self, csv_file, img_root=''):
+    def __init__(self, csv_file: str, img_root: 'str | dict' = '') -> None:
         self.img_root = img_root
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -46,15 +55,22 @@ class MemDataset(Dataset):
             transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
                                  std=[0.27608301, 0.26593025, 0.28238822]),
         ])
-        self.annotations = pd.read_csv(csv_file)
+        df = pd.read_csv(csv_file)
+        # Normalise column names so combined-split CSVs (file / mem) and
+        # standard CSVs (image_path / score) both work without branching.
+        df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
+        self.annotations = df
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.annotations)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
-        img_path = (os.path.join(self.img_root, row['image_path'])
-                    if self.img_root else row['image_path'])
+        if isinstance(self.img_root, dict):
+            img_path = os.path.join(self.img_root[row['set']], row['image_path'])
+        else:
+            img_path = (os.path.join(self.img_root, row['image_path'])
+                        if self.img_root else row['image_path'])
         image = Image.open(img_path).convert('RGB')
         image = self.transform(image)
         score = torch.tensor(float(row['score']), dtype=torch.float32)
@@ -65,11 +81,14 @@ class PerceptCLIPDataset(Dataset):
     """Dataset for PerceptCLIP memorability prediction.
 
     Expects a CSV with columns:
-        image_path  - absolute path or relative to img_root
+        image_path  - filename relative to img_root (or absolute path)
         score       - memorability score in [0, 1]
+
+    Accepts the same ``img_root`` dict convention as :class:`MemDataset` for
+    combined LaMem + MemCat splits.
     """
 
-    def __init__(self, csv_file, img_root=''):
+    def __init__(self, csv_file: str, img_root: 'str | dict' = '') -> None:
         self.img_root = img_root
         self.transform = transforms.Compose([
             transforms.Resize(224),
@@ -78,52 +97,7 @@ class PerceptCLIPDataset(Dataset):
             transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073),
                                  std=(0.26862954, 0.26130258, 0.27577711)),
         ])
-        self.annotations = pd.read_csv(csv_file)
-
-    def __len__(self):
-        return len(self.annotations)
-
-    def __getitem__(self, index):
-        row = self.annotations.iloc[index]
-        img_path = (os.path.join(self.img_root, row['image_path'])
-                    if self.img_root else row['image_path'])
-        image = Image.open(img_path).convert('RGB')
-        image = self.transform(image)
-        score = torch.tensor(float(row['score']), dtype=torch.float32)
-        return row['image_path'], image, score
-
-
-class CombinedMemDataset(Dataset):
-    """Dataset for the combined LaMem + MemCat memorability prediction splits.
-
-    Expects a CSV with columns:
-        set   - dataset source ('lamem' or 'memcat')
-        file  - image filename relative to the respective image root
-        mem   - memorability score in [0, 1]
-
-    Images are loaded from lamem_img_root when set == 'lamem', and from
-    memcat_img_root when set == 'memcat'.  The same CLIP-HBA normalisation
-    as MemDataset is applied.
-    """
-
-    def __init__(
-        self,
-        csv_file: str,
-        lamem_img_root: str,
-        memcat_img_root: str,
-    ) -> None:
-        self.lamem_img_root  = pathlib.Path(lamem_img_root)
-        self.memcat_img_root = pathlib.Path(memcat_img_root)
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
-                                 std=[0.27608301, 0.26593025, 0.28238822]),
-        ])
         df = pd.read_csv(csv_file)
-        # Rename to the canonical column names used downstream (train_fraction
-        # subsampling and score-range diagnostics both expect 'image_path' and
-        # 'score').
         df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
         self.annotations = df
 
@@ -132,9 +106,11 @@ class CombinedMemDataset(Dataset):
 
     def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
-        img_root = (self.lamem_img_root if row['set'] == 'lamem'
-                    else self.memcat_img_root)
-        img_path = str(img_root / row['image_path'])
+        if isinstance(self.img_root, dict):
+            img_path = os.path.join(self.img_root[row['set']], row['image_path'])
+        else:
+            img_path = (os.path.join(self.img_root, row['image_path'])
+                        if self.img_root else row['image_path'])
         image = Image.open(img_path).convert('RGB')
         image = self.transform(image)
         score = torch.tensor(float(row['score']), dtype=torch.float32)
@@ -556,9 +532,16 @@ def _run_mem_training_impl(config, run_timestamp):
     seed_everything(config['random_seed'])
 
     model_type    = config.get('model_type', 'clip_hba_mem')
-    dataset_type  = config.get('dataset_type', 'standard')
     embeddings_dir = config.get('embeddings_dir', None)
     use_precomputed = embeddings_dir is not None
+
+    # Build img_root: a plain string for single-dataset configs, or a dict
+    # mapping set names to directories for combined LaMem + MemCat splits.
+    if 'lamem_img_root' in config:
+        img_root = {'lamem': config['lamem_img_root'],
+                    'memcat': config['memcat_img_root']}
+    else:
+        img_root = config.get('img_root', '')
 
     # ------------------------------------------------------------------
     # Dataset construction
@@ -569,30 +552,14 @@ def _run_mem_training_impl(config, run_timestamp):
         train_dataset = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_train.pt')
         val_dataset   = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_val.pt')
         test_dataset  = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_test.pt')
-    elif dataset_type == 'combined':
-        train_dataset = CombinedMemDataset(csv_file=config['train_csv'],
-                                           lamem_img_root=config['lamem_img_root'],
-                                           memcat_img_root=config['memcat_img_root'])
-        val_dataset   = CombinedMemDataset(csv_file=config['val_csv'],
-                                           lamem_img_root=config['lamem_img_root'],
-                                           memcat_img_root=config['memcat_img_root'])
-        test_dataset  = CombinedMemDataset(csv_file=config['test_csv'],
-                                           lamem_img_root=config['lamem_img_root'],
-                                           memcat_img_root=config['memcat_img_root'])
     elif model_type in ('perceptclip', 'clip_frozen_mlp'):
-        train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'],
-                                           img_root=config.get('img_root', ''))
-        val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],
-                                           img_root=config.get('img_root', ''))
-        test_dataset  = PerceptCLIPDataset(csv_file=config['test_csv'],
-                                           img_root=config.get('img_root', ''))
+        train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'], img_root=img_root)
+        val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],   img_root=img_root)
+        test_dataset  = PerceptCLIPDataset(csv_file=config['test_csv'],  img_root=img_root)
     else:
-        train_dataset = MemDataset(csv_file=config['train_csv'],
-                                   img_root=config.get('img_root', ''))
-        val_dataset   = MemDataset(csv_file=config['val_csv'],
-                                   img_root=config.get('img_root', ''))
-        test_dataset  = MemDataset(csv_file=config['test_csv'],
-                                   img_root=config.get('img_root', ''))
+        train_dataset = MemDataset(csv_file=config['train_csv'], img_root=img_root)
+        val_dataset   = MemDataset(csv_file=config['val_csv'],   img_root=img_root)
+        test_dataset  = MemDataset(csv_file=config['test_csv'],  img_root=img_root)
 
     print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples | Test: {len(test_dataset)} samples')
 

@@ -23,8 +23,7 @@ import os
 def main():
     fold = int(os.environ.get('FOLD', 1))
     config = {
-        'model_type':   'clip_hba_mem',
-        'dataset_type': 'combined',   # triggers CombinedMemDataset
+        'model_type': 'clip_hba_mem',
 
         # --- Data ---
         'fold':     fold,
