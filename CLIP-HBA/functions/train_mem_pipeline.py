@@ -93,6 +93,54 @@ class PerceptCLIPDataset(Dataset):
         return row['image_path'], image, score
 
 
+class CombinedMemDataset(Dataset):
+    """Dataset for the combined LaMem + MemCat memorability prediction splits.
+
+    Expects a CSV with columns:
+        set   - dataset source ('lamem' or 'memcat')
+        file  - image filename relative to the respective image root
+        mem   - memorability score in [0, 1]
+
+    Images are loaded from lamem_img_root when set == 'lamem', and from
+    memcat_img_root when set == 'memcat'.  The same CLIP-HBA normalisation
+    as MemDataset is applied.
+    """
+
+    def __init__(
+        self,
+        csv_file: str,
+        lamem_img_root: str,
+        memcat_img_root: str,
+    ) -> None:
+        self.lamem_img_root  = pathlib.Path(lamem_img_root)
+        self.memcat_img_root = pathlib.Path(memcat_img_root)
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
+                                 std=[0.27608301, 0.26593025, 0.28238822]),
+        ])
+        df = pd.read_csv(csv_file)
+        # Rename to the canonical column names used downstream (train_fraction
+        # subsampling and score-range diagnostics both expect 'image_path' and
+        # 'score').
+        df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
+        self.annotations = df
+
+    def __len__(self) -> int:
+        return len(self.annotations)
+
+    def __getitem__(self, index: int):
+        row = self.annotations.iloc[index]
+        img_root = (self.lamem_img_root if row['set'] == 'lamem'
+                    else self.memcat_img_root)
+        img_path = str(img_root / row['image_path'])
+        image = Image.open(img_path).convert('RGB')
+        image = self.transform(image)
+        score = torch.tensor(float(row['score']), dtype=torch.float32)
+        return row['image_path'], image, score
+
+
 class EmbeddingDataset(Dataset):
     """Dataset that serves precomputed 768-dim backbone embeddings.
 
@@ -508,6 +556,7 @@ def _run_mem_training_impl(config, run_timestamp):
     seed_everything(config['random_seed'])
 
     model_type    = config.get('model_type', 'clip_hba_mem')
+    dataset_type  = config.get('dataset_type', 'standard')
     embeddings_dir = config.get('embeddings_dir', None)
     use_precomputed = embeddings_dir is not None
 
@@ -520,6 +569,16 @@ def _run_mem_training_impl(config, run_timestamp):
         train_dataset = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_train.pt')
         val_dataset   = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_val.pt')
         test_dataset  = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_test.pt')
+    elif dataset_type == 'combined':
+        train_dataset = CombinedMemDataset(csv_file=config['train_csv'],
+                                           lamem_img_root=config['lamem_img_root'],
+                                           memcat_img_root=config['memcat_img_root'])
+        val_dataset   = CombinedMemDataset(csv_file=config['val_csv'],
+                                           lamem_img_root=config['lamem_img_root'],
+                                           memcat_img_root=config['memcat_img_root'])
+        test_dataset  = CombinedMemDataset(csv_file=config['test_csv'],
+                                           lamem_img_root=config['lamem_img_root'],
+                                           memcat_img_root=config['memcat_img_root'])
     elif model_type in ('perceptclip', 'clip_frozen_mlp'):
         train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'],
                                            img_root=config.get('img_root', ''))
