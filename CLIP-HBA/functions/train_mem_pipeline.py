@@ -534,14 +534,7 @@ def _run_mem_training_impl(config, run_timestamp):
     model_type    = config.get('model_type', 'clip_hba_mem')
     embeddings_dir = config.get('embeddings_dir', None)
     use_precomputed = embeddings_dir is not None
-
-    # Build img_root: a plain string for single-dataset configs, or a dict
-    # mapping set names to directories for combined LaMem + MemCat splits.
-    if 'lamem_img_root' in config:
-        img_root = {'lamem': config['lamem_img_root'],
-                    'memcat': config['memcat_img_root']}
-    else:
-        img_root = config.get('img_root', '')
+    img_root = config.get('img_root', '')
 
     # ------------------------------------------------------------------
     # Dataset construction

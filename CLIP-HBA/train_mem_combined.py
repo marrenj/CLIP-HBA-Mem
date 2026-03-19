@@ -23,15 +23,16 @@ import os
 def main():
     fold = int(os.environ.get('FOLD', 1))
     config = {
-        'model_type': 'clip_hba_mem',
+        'model_type':    'clip_hba_mem',
+        'training_data': 'combined_lamem_memcat',
 
         # --- Data ---
         'fold':     fold,
         'train_csv': f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv',
         'val_csv':   f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv',
         'test_csv':  f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv',
-        'lamem_img_root':  './Data/lamem/images/',
-        'memcat_img_root': './Data/memcat/images/',
+        'img_root': {'lamem':  './Data/lamem/images/',
+                     'memcat': './Data/memcat/images/'},
         'preds_dir': './preds/',
         'log_path':  './logs/mem_combined.log',
 

@@ -6,14 +6,15 @@ def main():
     fold = int(os.environ.get('LAMEM_FOLD', 1))
     model_type = os.environ.get('MODEL_TYPE', 'clip_hba_mem')
     config = {
-        'model_type': 'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+        'model_type':    'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+        'training_data': 'lamem',
 
         # --- Data ---
         'fold':      fold,
         'train_csv': f'./Data/lamem/lamem_train_{fold}.csv',   # columns: image_path, score
         'val_csv':   f'./Data/lamem/lamem_val_{fold}.csv',     # columns: image_path, score
         'test_csv':  f'./Data/lamem/lamem_test_{fold}.csv',    # columns: image_path, score
-        'img_root':  os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),  # prepended to image_path if set
+        'img_root':  os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),  # str: prepended to image_path
         'preds_dir': './preds/',
         'log_path':  './logs/mem.log',
 
