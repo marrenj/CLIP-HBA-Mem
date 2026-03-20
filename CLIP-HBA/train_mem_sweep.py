@@ -74,7 +74,12 @@ elif TRAINING_DATA == 'combined_lamem_memcat':
         'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
         'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
     }
-    _EMBEDDINGS_DIR: 'str | None' = None  # no precomputed embeddings for combined splits
+    _EMBEDDINGS_DIR: 'str | None' = (
+        os.environ.get('EMBEDDINGS_DIR') or
+        ('./Data/combined_lamem_memcat/embeddings/'
+         if os.path.isdir('./Data/combined_lamem_memcat/embeddings/')
+         else None)
+    )
     _MEMCAT_META_CSV: 'str | None' = os.environ.get(
         'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
     )
