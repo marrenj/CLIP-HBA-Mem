@@ -62,6 +62,8 @@ TRAINING_DATA: str = os.environ.get('TRAINING_DATA', 'lamem')  # 'lamem' | 'comb
 if TRAINING_DATA == 'lamem':
     N_FOLDS: int = 5
     _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
+    _EMBEDDINGS_DIR: 'str | None' = './Data/lamem/embeddings/'
+    _MEMCAT_META_CSV: 'str | None' = None
 
     def _csv_path(split: str, fold: int) -> str:
         return f'./Data/lamem/lamem_{split}_{fold}.csv'
@@ -72,6 +74,10 @@ elif TRAINING_DATA == 'combined_lamem_memcat':
         'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
         'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
     }
+    _EMBEDDINGS_DIR: 'str | None' = None  # no precomputed embeddings for combined splits
+    _MEMCAT_META_CSV: 'str | None' = os.environ.get(
+        'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
+    )
 
     def _csv_path(split: str, fold: int) -> str:
         return f'./Data/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
@@ -93,8 +99,9 @@ BASE_CONFIG = {
     'training_data': TRAINING_DATA,
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
-    'img_root':  _IMG_ROOT,
-    'embeddings_dir': './Data/lamem/embeddings/',
+    'img_root':       _IMG_ROOT,
+    'embeddings_dir': _EMBEDDINGS_DIR,
+    'memcat_meta_csv': _MEMCAT_META_CSV,
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
     #'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',

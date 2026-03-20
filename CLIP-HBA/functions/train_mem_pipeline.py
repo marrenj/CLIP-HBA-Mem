@@ -45,9 +45,24 @@ class MemDataset(Dataset):
                   'memcat': './Data/memcat/images/'}
 
     The dict keys must match the values in the ``set`` column.
+
+    MemCat images are organised in subdirectories by category and subcategory
+    (``<category>/<subcategory>/<filename>``).  Supply the path to
+    ``memcat_image_data.csv`` so the dataset can look up the correct subpath
+    for each MemCat filename::
+
+        memcat_meta_csv='./Data/memcat/memcat_image_data.csv'
+
+    The metadata CSV must contain ``category`` and ``subcategory`` columns
+    plus one of ``file``, ``filename``, or ``image_file`` as the filename key.
     """
 
-    def __init__(self, csv_file: str, img_root: 'str | dict' = '') -> None:
+    def __init__(
+        self,
+        csv_file: str,
+        img_root: 'str | dict' = '',
+        memcat_meta_csv: 'str | None' = None,
+    ) -> None:
         self.img_root = img_root
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -61,13 +76,37 @@ class MemDataset(Dataset):
         df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
         self.annotations = df
 
+        # Build filename -> "category/subcategory" lookup for MemCat images.
+        self._memcat_subpath: 'dict[str, str]' = {}
+        if memcat_meta_csv:
+            meta = pd.read_csv(memcat_meta_csv)
+            for col in ('file', 'filename', 'image_file'):
+                if col in meta.columns:
+                    self._memcat_subpath = dict(zip(
+                        meta[col],
+                        meta['category'].astype(str) + os.sep + meta['subcategory'].astype(str),
+                    ))
+                    break
+            if not self._memcat_subpath:
+                raise ValueError(
+                    f"memcat_image_data.csv has no recognised filename column "
+                    f"(tried: 'file', 'filename', 'image_file'). "
+                    f"Columns found: {list(meta.columns)}"
+                )
+
     def __len__(self) -> int:
         return len(self.annotations)
 
     def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
         if isinstance(self.img_root, dict):
-            img_path = os.path.join(self.img_root[row['set']], row['image_path'])
+            root = self.img_root[row['set']]
+            fname = row['image_path']
+            if row['set'] == 'memcat' and self._memcat_subpath:
+                subpath = self._memcat_subpath.get(fname, '')
+                img_path = os.path.join(root, subpath, fname)
+            else:
+                img_path = os.path.join(root, fname)
         else:
             img_path = (os.path.join(self.img_root, row['image_path'])
                         if self.img_root else row['image_path'])
@@ -84,11 +123,16 @@ class PerceptCLIPDataset(Dataset):
         image_path  - filename relative to img_root (or absolute path)
         score       - memorability score in [0, 1]
 
-    Accepts the same ``img_root`` dict convention as :class:`MemDataset` for
-    combined LaMem + MemCat splits.
+    Accepts the same ``img_root`` dict convention and ``memcat_meta_csv``
+    parameter as :class:`MemDataset` for combined LaMem + MemCat splits.
     """
 
-    def __init__(self, csv_file: str, img_root: 'str | dict' = '') -> None:
+    def __init__(
+        self,
+        csv_file: str,
+        img_root: 'str | dict' = '',
+        memcat_meta_csv: 'str | None' = None,
+    ) -> None:
         self.img_root = img_root
         self.transform = transforms.Compose([
             transforms.Resize(224),
@@ -101,13 +145,37 @@ class PerceptCLIPDataset(Dataset):
         df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
         self.annotations = df
 
+        # Build filename -> "category/subcategory" lookup for MemCat images.
+        self._memcat_subpath: 'dict[str, str]' = {}
+        if memcat_meta_csv:
+            meta = pd.read_csv(memcat_meta_csv)
+            for col in ('file', 'filename', 'image_file'):
+                if col in meta.columns:
+                    self._memcat_subpath = dict(zip(
+                        meta[col],
+                        meta['category'].astype(str) + os.sep + meta['subcategory'].astype(str),
+                    ))
+                    break
+            if not self._memcat_subpath:
+                raise ValueError(
+                    f"memcat_image_data.csv has no recognised filename column "
+                    f"(tried: 'file', 'filename', 'image_file'). "
+                    f"Columns found: {list(meta.columns)}"
+                )
+
     def __len__(self) -> int:
         return len(self.annotations)
 
     def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
         if isinstance(self.img_root, dict):
-            img_path = os.path.join(self.img_root[row['set']], row['image_path'])
+            root = self.img_root[row['set']]
+            fname = row['image_path']
+            if row['set'] == 'memcat' and self._memcat_subpath:
+                subpath = self._memcat_subpath.get(fname, '')
+                img_path = os.path.join(root, subpath, fname)
+            else:
+                img_path = os.path.join(root, fname)
         else:
             img_path = (os.path.join(self.img_root, row['image_path'])
                         if self.img_root else row['image_path'])
@@ -535,6 +603,7 @@ def _run_mem_training_impl(config, run_timestamp):
     embeddings_dir = config.get('embeddings_dir', None)
     use_precomputed = embeddings_dir is not None
     img_root = config.get('img_root', '')
+    memcat_meta_csv = config.get('memcat_meta_csv', None)
 
     # ------------------------------------------------------------------
     # Dataset construction
@@ -546,13 +615,13 @@ def _run_mem_training_impl(config, run_timestamp):
         val_dataset   = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_val.pt')
         test_dataset  = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_test.pt')
     elif model_type in ('perceptclip', 'clip_frozen_mlp'):
-        train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'], img_root=img_root)
-        val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],   img_root=img_root)
-        test_dataset  = PerceptCLIPDataset(csv_file=config['test_csv'],  img_root=img_root)
+        train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'], img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],   img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        test_dataset  = PerceptCLIPDataset(csv_file=config['test_csv'],  img_root=img_root, memcat_meta_csv=memcat_meta_csv)
     else:
-        train_dataset = MemDataset(csv_file=config['train_csv'], img_root=img_root)
-        val_dataset   = MemDataset(csv_file=config['val_csv'],   img_root=img_root)
-        test_dataset  = MemDataset(csv_file=config['test_csv'],  img_root=img_root)
+        train_dataset = MemDataset(csv_file=config['train_csv'], img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        val_dataset   = MemDataset(csv_file=config['val_csv'],   img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        test_dataset  = MemDataset(csv_file=config['test_csv'],  img_root=img_root, memcat_meta_csv=memcat_meta_csv)
 
     print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples | Test: {len(test_dataset)} samples')
 
