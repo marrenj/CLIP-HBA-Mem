@@ -11,13 +11,13 @@ def main():
         train_csv = f'./Data/lamem/lamem_train_{fold}.csv'
         val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
         test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
-        img_root  = './Data/lamem/images/'
+        img_root  = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
     elif training_data == 'combined_lamem_memcat':
         train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
         val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
         test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
-        img_root  = {'lamem':  './Data/lamem/images/',
-                     'memcat': './Data/memcat/images/'}
+        img_root  = {'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
+                     'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/')}
     else:
         raise ValueError(f"Unknown TRAINING_DATA: {training_data!r}. "
                          f"Choose 'lamem' or 'combined_lamem_memcat'.")

@@ -51,35 +51,51 @@ echo "=========================================="
 # Configuration
 # =============================================================================
 
+# Dataset to train on. Options:
+#   - lamem
+#   - combined_lamem_memcat
+export TRAINING_DATA="lamem"
+
 # Model type for memorability training. Options:
 #   - clip_hba_mem
 #   - perceptclip
 export MODEL_TYPE="clip_hba_mem"
 
 # =============================================================================
-# Copy LaMem images to local /tmp once; all folds read from the same copy.
+# Copy image data to local /tmp once; all folds read from the same copy.
 # =============================================================================
 
-LOCAL_DATA=/tmp/lamem_cache
-if [ ! -d "${LOCAL_DATA}" ]; then
-    echo "Copying LaMem to local storage..."
-    mkdir -p "${LOCAL_DATA}"
-    rsync -a --info=progress2 "./Data/lamem/images/" "${LOCAL_DATA}/"
+LOCAL_LAMEM=/tmp/lamem_cache
+if [ ! -d "${LOCAL_LAMEM}" ]; then
+    echo "Copying LaMem images to local storage..."
+    mkdir -p "${LOCAL_LAMEM}"
+    rsync -a --info=progress2 "./Data/lamem/images/" "${LOCAL_LAMEM}/"
 else
-    echo "Using cached LaMem data at ${LOCAL_DATA}"
+    echo "Using cached LaMem data at ${LOCAL_LAMEM}"
+fi
+export LAMEM_IMG_ROOT="${LOCAL_LAMEM}"
+
+if [ "${TRAINING_DATA}" = "combined_lamem_memcat" ]; then
+    LOCAL_MEMCAT=/tmp/memcat_cache
+    if [ ! -d "${LOCAL_MEMCAT}" ]; then
+        echo "Copying MemCat images to local storage..."
+        mkdir -p "${LOCAL_MEMCAT}"
+        rsync -a --info=progress2 "./Data/memcat/images/" "${LOCAL_MEMCAT}/"
+    else
+        echo "Using cached MemCat data at ${LOCAL_MEMCAT}"
+    fi
+    export MEMCAT_IMG_ROOT="${LOCAL_MEMCAT}"
 fi
 
 echo "=========================================="
 
-export LAMEM_IMG_ROOT="${LOCAL_DATA}"
-
-# --- Train all 5 folds sequentially -----------------------------------------
+# --- Train all folds sequentially --------------------------------------------
 for FOLD in 2 3; do
     echo ""
     echo "=========================================="
     echo "Starting fold ${FOLD} at $(date)"
     echo "=========================================="
-    export LAMEM_FOLD="${FOLD}"
+    export FOLD="${FOLD}"
     N_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
     if [ "$N_GPUS" -eq 1 ]; then
         export CUDA_DEVICE=0

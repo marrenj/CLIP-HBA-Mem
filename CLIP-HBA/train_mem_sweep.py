@@ -55,6 +55,34 @@ except ImportError as _e:
 from functions.train_mem_pipeline import run_mem_training
 
 # ---------------------------------------------------------------------------
+# Dataset configuration — mirrors train_mem.py; set via TRAINING_DATA env var
+# ---------------------------------------------------------------------------
+TRAINING_DATA: str = os.environ.get('TRAINING_DATA', 'lamem')  # 'lamem' | 'combined_lamem_memcat'
+
+if TRAINING_DATA == 'lamem':
+    N_FOLDS: int = 5
+    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
+
+    def _csv_path(split: str, fold: int) -> str:
+        return f'./Data/lamem/lamem_{split}_{fold}.csv'
+
+elif TRAINING_DATA == 'combined_lamem_memcat':
+    N_FOLDS: int = 10
+    _IMG_ROOT: 'str | dict' = {
+        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
+        'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+    }
+
+    def _csv_path(split: str, fold: int) -> str:
+        return f'./Data/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
+
+else:
+    raise ValueError(
+        f"Unknown TRAINING_DATA: {TRAINING_DATA!r}. "
+        f"Choose 'lamem' or 'combined_lamem_memcat'."
+    )
+
+# ---------------------------------------------------------------------------
 # Fixed configuration — edit paths and device to match your environment
 # ---------------------------------------------------------------------------
 BASE_CONFIG = {
@@ -62,9 +90,10 @@ BASE_CONFIG = {
     #   'clip_hba_mem'    — HBA-tuned CLIP backbone (requires backbone_checkpoint)
     #   'clip_frozen_mlp' — vanilla openai/clip-vit-large-patch14
     'model_type': 'clip_hba_mem',
+    'training_data': TRAINING_DATA,
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
-    'img_root':  './Data/lamem/images/',
+    'img_root':  _IMG_ROOT,
     'embeddings_dir': './Data/lamem/embeddings/',
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
@@ -85,8 +114,6 @@ BASE_CONFIG = {
     'random_seed':             42,
 }
 
-N_FOLDS: int = 5
-LAMEM_CSV_PATTERN: str = './Data/lamem/lamem_{split}_{fold}.csv'
 
 # ---------------------------------------------------------------------------
 # Search space
@@ -208,9 +235,9 @@ def _objective(
             fold_config = {
                 **BASE_CONFIG,
                 'fold':            fold,
-                'train_csv':       LAMEM_CSV_PATTERN.format(split='train', fold=fold),
-                'val_csv':         LAMEM_CSV_PATTERN.format(split='val',   fold=fold),
-                'test_csv':        LAMEM_CSV_PATTERN.format(split='test',  fold=fold),
+                'train_csv':       _csv_path('train', fold),
+                'val_csv':         _csv_path('val',   fold),
+                'test_csv':        _csv_path('test',  fold),
                 'hidden_dims':     hidden_dims,
                 'dropout_rate':    dropout_rate,
                 'lr':              lr,
@@ -297,9 +324,9 @@ def _write_sweep_config(sweep_dir: str, n_trials: int, resumed: bool) -> None:
         config: dict = {
             'started_at':        timestamp,
             'n_trials_requested': n_trials,
-            'model_type':        BASE_CONFIG.get('model_type', 'unknown'),
-            'n_folds':           N_FOLDS,
-            'lamem_csv_pattern': LAMEM_CSV_PATTERN,
+            'model_type':    BASE_CONFIG.get('model_type', 'unknown'),
+            'training_data': TRAINING_DATA,
+            'n_folds':       N_FOLDS,
             'base_config':       base_config_serialisable,
             'search_space': {
                 k: list(v) if isinstance(v, tuple) else v
