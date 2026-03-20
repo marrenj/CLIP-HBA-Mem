@@ -4,7 +4,7 @@ import os
 
 
 def main():
-    training_data = os.environ.get('TRAINING_DATA', 'lamem')  # 'lamem' | 'combined_lamem_memcat'
+    training_data = os.environ.get('TRAINING_DATA', 'combined_lamem_memcat')  # 'lamem' | 'combined_lamem_memcat'
     fold = int(os.environ.get('FOLD', 1))
 
     if training_data == 'lamem':

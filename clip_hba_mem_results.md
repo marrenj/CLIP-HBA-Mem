@@ -51,27 +51,28 @@ The primary benchmark. Human consistency ceiling on LaMem is $\rho$ = 0.68.
 
 | Model | Fold 1 | Fold 2 | Fold 3 | Fold 4 | Fold 5 | **Mean ± SD** |
 |---|---|---|---|---|---|---|
-| MemNet (Khosla et al., 2015) | — | — | — | — | — | 0.57 |
-| AMNet (Fajtl et al., 2018) | — | — | — | — | — | 0.677 |
-| ResMem-Net (Praveen et al., 2021) | — | — | — | — | — | 0.679 |
-| ResMem (Needell & Bainbridge, 2022) | — | — | — | — | — | 0.64 |
-| ViTMem (Hagen & Espeseth, 2023) | — | — | — | — | — | $\geq 0.64$ |
-| PerceptCLIP (Zalcher et al., 2025) | — | — | — | — | — | SOTA |
-| *Human ceiling* | — | — | — | — | — | *0.68* |
-| **CLIP ViT-L/14 (frozen) + MLP** | `[X]` | `[X]` | `[X]` | `[X]` | `[X]` | **`[X ± X]`** |
-| **CLIP-HBA-Mem (frozen) + MLP** | 0.70 | `[X]` | `[X]` | `[X]` | `[X]` | **`[X ± X]`** |
+| *Human ceiling* | — | — | — | — | — | *.68* |
+| **CLIP ViT-L/14 (frozen) + MLP** | .685 | .680 | .685 | .688 | .684 | **0.684 ± .003** |
+| **CLIP-HBA-Mem (frozen) + MLP** | .705 | 0.699 | .711 | .707 | .702 | **.704 ± .004** |
 
 Reported metric: Spearman Rank Correlation Coefficient (SRCC). Prior model results are from published papers; experimental setups vary slightly.
+
+| MemNet (Khosla et al., 2015) | — | — | — | — | — | .57 |
+| AMNet (Fajtl et al., 2018) | — | — | — | — | — | .677 |
+| ResMem-Net (Praveen et al., 2021) | — | — | — | — | — | .679 |
+| ResMem (Needell & Bainbridge, 2022) | — | — | — | — | — | .64 |
+| ViTMem (Hagen & Espeseth, 2023) | — | — | — | — | — | 0.711 ± 0.008 |
+| PerceptCLIP (Zalcher et al., 2025) | — | — | — | — | — | 0.741 ± 0.007 |
 
 ### Out-of-Distribution Generalization
 
 Both models evaluated zero-shot (no fine-tuning on target dataset; LaMem-trained MLP head applied directly).
 
-| Dataset | Human Ceiling | ResMem | ViTMem | CLIP (frozen) + MLP | **CLIP-HBA-Mem (M, SD)** |
-|---|---|---|---|---|---|
-| MemCat | .78 | — | — | `[X]` | **.712, .003** |
-| THINGS Memorability | .449 | .22 | .30 | `[X]` | **.293, .002** |
-| PASCAL-S (images) | — | .36 | .44 | `[X]` | `[X]` |
+| Dataset | Human Ceiling | ResMem | ViTMem | PerceptCLIP | CLIP (frozen) + MLP | **CLIP-HBA-Mem (M, SD)** |
+|---|---|---|---|---|---|---|
+| MemCat | .78 | — | — | - | .708, .009 | **.712, .003** |
+| THINGS Memorability | .449 | .22 | .30 | .34 | .280, .007 | **.293, .002** |
+| PASCAL-S (images) | — | .36 | .44 | - | `[X]` | `[X]` |
 
 MemCat: Goetschalckx & Wagemans (2019); 10,000 images across 5 semantic categories. THINGS Memorability: Kramer, Hebart, Baker & Bainbridge (2023); 26,107 object images, 1M+ ratings. PASCAL-S: Dubey, Peterson, Khosla, Yang, & Ghanem (2015). 
 
