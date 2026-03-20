@@ -287,9 +287,9 @@ def extract_embeddings_for_fold(
     meg_ms_step: int = 5,
     meg_ms_end: int = 1300,
     meg_train_start: int = -100,
-    meg_train_step: int = 5,
+    meg_train_step: int = 100,
     meg_train_end: int = 1300,
-    meg_train_window_size: int = 15,
+    meg_train_window_size: int = 300,
 ) -> None:
     """Extract and save embeddings for all three splits of one fold.
 
@@ -562,11 +562,11 @@ def main() -> None:
                         help='[MEG] Last timepoint in the full recording (ms).')
     parser.add_argument('--meg_train_start',       type=int, default=-100,
                         help='[MEG] First training timepoint (ms).')
-    parser.add_argument('--meg_train_step',        type=int, default=5,
+    parser.add_argument('--meg_train_step',        type=int, default=100,
                         help='[MEG] Step between training timepoints (ms).')
     parser.add_argument('--meg_train_end',         type=int, default=1300,
                         help='[MEG] Last training timepoint (ms).')
-    parser.add_argument('--meg_train_window_size', type=int, default=15,
+    parser.add_argument('--meg_train_window_size', type=int, default=300,
                         help='[MEG] Half-window size used during MEG training (ms).')
     parser.add_argument(
         '--batch_size',
