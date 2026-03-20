@@ -214,6 +214,49 @@ class EmbeddingDataset(Dataset):
         )
 
 
+class MEGEmbeddingDataset(Dataset):
+    """Dataset serving precomputed CLIP-HBA-MEG features for a single timepoint.
+
+    Loads a .pt file produced by extract_embeddings.py with ``model_type=clip_hba_meg``.
+    The file contains:
+        embeddings    – Tensor[N, T, 768]  float16  per-timepoint visual features
+        scores        – Tensor[N]          float32  memorability scores
+        image_paths   – list[N]            relative image path strings
+        timepoints_ms – Tensor[T]          MEG timepoints in milliseconds
+
+    Each image's embedding at timepoint ``t_idx`` is a 768-dim weighted sum of
+    the 24 ViT layer CLS-token projections, where the layer weights are learned
+    by the MEG model's ``weighting_matrix[t_idx, :]``.  This representation is
+    genuinely timepoint-specific (unlike the final-layer CLS token).
+
+    The float16 tensor is converted to float32 on the fly per item to avoid
+    doubling peak RAM during the dataset slicing at construction time.
+
+    Args:
+        pt_path: Path to the .pt embedding file.
+        t_idx:   Index into the T dimension to serve as the per-image embedding.
+    """
+
+    def __init__(self, pt_path: str, t_idx: int) -> None:
+        payload = torch.load(pt_path, map_location='cpu', weights_only=True)
+        # Keep as float16 to save RAM; convert to float32 in __getitem__.
+        self._embeddings_f16: torch.Tensor = payload['embeddings']  # [N, T, 768] float16
+        self.t_idx = t_idx
+        self.scores:       torch.Tensor = payload['scores']        # [N]
+        self.image_paths:  list         = payload['image_paths']   # list[N]
+        self.timepoints_ms: torch.Tensor = payload['timepoints_ms']  # [T]
+
+    def __len__(self) -> int:
+        return len(self.scores)
+
+    def __getitem__(self, index: int):
+        return (
+            self.image_paths[index],
+            self._embeddings_f16[index, self.t_idx, :].float(),  # [768] float32
+            self.scores[index],
+        )
+
+
 class MLP(nn.Module):
     def __init__(self, input_dim=768, hidden_dim1=512, hidden_dim2=256,
                  output_dim=1, dropout_rate=0.5):
