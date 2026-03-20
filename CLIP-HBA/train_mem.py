@@ -12,12 +12,14 @@ def main():
         val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
         test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
         img_root  = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
+        memcat_meta_csv = None
     elif training_data == 'combined_lamem_memcat':
         train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
         val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
         test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
         img_root  = {'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
                      'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/')}
+        memcat_meta_csv = os.environ.get('MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv')
     else:
         raise ValueError(f"Unknown TRAINING_DATA: {training_data!r}. "
                          f"Choose 'lamem' or 'combined_lamem_memcat'.")
@@ -31,7 +33,8 @@ def main():
         'train_csv': train_csv,
         'val_csv':   val_csv,
         'test_csv':  test_csv,
-        'img_root':  img_root,
+        'img_root':        img_root,
+        'memcat_meta_csv': memcat_meta_csv,
         'preds_dir': './preds/',
         'log_path':  './logs/mem.log',
 

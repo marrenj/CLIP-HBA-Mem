@@ -1,4 +1,4 @@
-"""Bayesian hyperparameter search for the memorability MLP head using Optuna.
+﻿"""Bayesian hyperparameter search for the memorability MLP head using Optuna.
 
 Replaces the exhaustive grid search with Tree-structured Parzen Estimator (TPE),
 a Bayesian optimisation algorithm that builds a probabilistic model of the
@@ -63,6 +63,7 @@ if TRAINING_DATA == 'lamem':
     N_FOLDS: int = 5
     _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
     _EMBEDDINGS_DIR: 'str | None' = './Data/lamem/embeddings/'
+    _MEMCAT_META_CSV: 'str | None' = None
 
     def _csv_path(split: str, fold: int) -> str:
         return f'./Data/lamem/lamem_{split}_{fold}.csv'
@@ -74,6 +75,12 @@ elif TRAINING_DATA == 'combined_lamem_memcat':
         'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
     }
     _EMBEDDINGS_DIR: 'str | None' = None  # no precomputed embeddings for combined splits
+<<<<<<< HEAD
+=======
+    _MEMCAT_META_CSV: 'str | None' = os.environ.get(
+        'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
+    )
+>>>>>>> e7af3ccef2c4508bc6ff11d0035359f0863c29fd
 
     def _csv_path(split: str, fold: int) -> str:
         return f'./Data/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
@@ -95,8 +102,14 @@ BASE_CONFIG = {
     'training_data': TRAINING_DATA,
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
+<<<<<<< HEAD
     'img_root':  _IMG_ROOT,
     'embeddings_dir': _EMBEDDINGS_DIR,
+=======
+    'img_root':       _IMG_ROOT,
+    'embeddings_dir': _EMBEDDINGS_DIR,
+    'memcat_meta_csv': _MEMCAT_META_CSV,
+>>>>>>> e7af3ccef2c4508bc6ff11d0035359f0863c29fd
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
     'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
