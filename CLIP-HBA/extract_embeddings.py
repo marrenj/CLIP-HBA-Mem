@@ -12,13 +12,21 @@ Expected speedup: ~100x per epoch (seconds rather than ~7.5 minutes).
 
 Usage
 -----
-    # Single fold, clip_hba_mem (reads LAMEM_* env vars if set):
+    # LaMem — single fold, clip_frozen_mlp:
+    python extract_embeddings.py --fold 1
+
+    # LaMem — single fold, clip_hba_mem:
     python extract_embeddings.py --model_type clip_hba_mem --fold 1
 
-    # Single fold, vanilla CLIP:
-    python extract_embeddings.py --model_type clip_frozen_mlp --fold 1
+    # Combined LaMem + MemCat — single fold:
+    python extract_embeddings.py \\
+        --training_data combined_lamem_memcat \\
+        --fold 1 \\
+        --memcat_img_root ./Data/memcat/images/ \\
+        --memcat_meta_csv ./Data/memcat/memcat_image_data.csv \\
+        --out_dir ./Data/combined_lamem_memcat/embeddings/
 
-    # All 5 folds for both model types (via the accompanying SLURM script):
+    # All folds for all model types (via the accompanying SLURM script):
     sbatch extract_embeddings.slurm
 
 Outputs
@@ -34,10 +42,11 @@ Outputs
 
 Enabling fast training
 ----------------------
-    Add ``'embeddings_dir': './Data/lamem/embeddings/'`` to the config dict
-    in train_mem.py or train_clip_mlp.py.  When this key is present,
-    run_mem_training() uses EmbeddingDataset + MLPOnlyHead instead of loading
-    raw images and running the full backbone on every batch.
+    Add ``'embeddings_dir': './Data/lamem/embeddings/'`` (or the combined
+    equivalent) to the config dict in train_mem.py or train_mem_sweep.py.
+    When this key is present, run_mem_training() uses EmbeddingDataset +
+    MLPOnlyHead instead of loading raw images and running the full backbone
+    on every batch.
 """
 
 import argparse
@@ -118,7 +127,7 @@ def extract_embeddings_for_fold(
     train_csv: str,
     val_csv: str,
     test_csv: str,
-    img_root: str,
+    img_root: 'str | dict',
     backbone_checkpoint: str,
     out_dir: str,
     device: torch.device,
@@ -128,11 +137,35 @@ def extract_embeddings_for_fold(
     vision_layers: int = 2,
     transformer_layers: int = 1,
     rank: int = 32,
+    memcat_meta_csv: 'str | None' = None,
 ) -> None:
     """Extract and save embeddings for all three splits of one fold.
 
     Skips any split whose output file already exists so the script is safe
     to re-run after an interruption.
+
+    Args:
+        model_type: ``'clip_hba_mem'`` or ``'clip_frozen_mlp'``.
+        fold: Fold number used in output filenames.
+        train_csv: Path to the training split CSV.
+        val_csv: Path to the validation split CSV.
+        test_csv: Path to the test split CSV.
+        img_root: Root directory for images.  Pass a ``dict`` mapping set
+            names to directories for combined LaMem + MemCat splits, e.g.
+            ``{'lamem': '...', 'memcat': '...'}``.
+        backbone_checkpoint: Path to the CLIP-HBA checkpoint (only used for
+            ``clip_hba_mem``).
+        out_dir: Directory where ``.pt`` embedding files are written.
+        device: Torch device to run backbone inference on.
+        batch_size: Batch size for backbone inference.
+        num_workers: DataLoader worker count.
+        backbone_name: CLIP backbone variant string.
+        vision_layers: Number of DoRA-patched vision layers (``clip_hba_mem``).
+        transformer_layers: Number of DoRA-patched text layers (``clip_hba_mem``).
+        rank: DoRA rank (``clip_hba_mem``).
+        memcat_meta_csv: Path to ``memcat_image_data.csv``.  Required when
+            ``img_root`` is a dict containing a ``'memcat'`` key so that
+            category/subcategory subdirectory paths can be resolved.
     """
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +194,11 @@ def extract_embeddings_for_fold(
             print(f'[Skip] {out_path} already exists — delete it to re-extract.')
             continue
 
-        dataset = DatasetClass(csv_file=csv_path, img_root=img_root)
+        dataset = DatasetClass(
+            csv_file=csv_path,
+            img_root=img_root,
+            memcat_meta_csv=memcat_meta_csv,
+        )
         loader  = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -211,6 +248,12 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
+        '--training_data',
+        default=os.environ.get('TRAINING_DATA', 'lamem'),
+        choices=['lamem', 'combined_lamem_memcat'],
+        help='Dataset to extract embeddings for.',
+    )
+    parser.add_argument(
         '--model_type',
         default=os.environ.get('MODEL_TYPE', 'clip_frozen_mlp'),
         choices=['clip_hba_mem', 'clip_frozen_mlp'],
@@ -219,18 +262,31 @@ def main() -> None:
     parser.add_argument(
         '--fold',
         type=int,
-        default=int(os.environ.get('LAMEM_FOLD', 5)),
-        help='LaMem fold number (1-5).',
+        default=int(os.environ.get('FOLD', os.environ.get('LAMEM_FOLD', 1))),
+        help='Fold number (1–5 for lamem; 1–10 for combined_lamem_memcat).',
     )
     parser.add_argument(
         '--img_root',
         default=os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),
-        help='Root directory prepended to image_path column values.',
+        help='LaMem images root directory.',
+    )
+    parser.add_argument(
+        '--memcat_img_root',
+        default=os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+        help='MemCat images root directory (only used for combined_lamem_memcat).',
+    )
+    parser.add_argument(
+        '--memcat_meta_csv',
+        default=os.environ.get('MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'),
+        help='Path to memcat_image_data.csv with category/subcategory columns '
+             '(only used for combined_lamem_memcat).',
     )
     parser.add_argument(
         '--out_dir',
-        default='./Data/lamem/embeddings/',
-        help='Directory where .pt embedding files are written.',
+        default=None,
+        help='Directory where .pt embedding files are written.  '
+             'Defaults to ./Data/lamem/embeddings/ for lamem and '
+             './Data/combined_lamem_memcat/embeddings/ for combined_lamem_memcat.',
     )
     parser.add_argument(
         '--backbone_checkpoint',
@@ -268,18 +324,38 @@ def main() -> None:
     device = torch.device('cpu') if args.cuda == 2 else torch.device(f'cuda:{args.cuda}')
 
     fold = args.fold
+
+    if args.training_data == 'lamem':
+        train_csv = f'./Data/lamem/lamem_train_{fold}.csv'
+        val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
+        test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
+        img_root      = args.img_root
+        memcat_meta_csv = None
+        out_dir = args.out_dir or './Data/lamem/embeddings/'
+    else:  # combined_lamem_memcat
+        train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
+        val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
+        test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        img_root = {
+            'lamem':  args.img_root,
+            'memcat': args.memcat_img_root,
+        }
+        memcat_meta_csv = args.memcat_meta_csv
+        out_dir = args.out_dir or './Data/combined_lamem_memcat/embeddings/'
+
     extract_embeddings_for_fold(
         model_type=args.model_type,
         fold=fold,
-        train_csv=f'./Data/lamem/lamem_train_{fold}.csv',
-        val_csv=f'./Data/lamem/lamem_val_{fold}.csv',
-        test_csv=f'./Data/lamem/lamem_test_{fold}.csv',
-        img_root=args.img_root,
+        train_csv=train_csv,
+        val_csv=val_csv,
+        test_csv=test_csv,
+        img_root=img_root,
         backbone_checkpoint=args.backbone_checkpoint,
-        out_dir=args.out_dir,
+        out_dir=out_dir,
         device=device,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        memcat_meta_csv=memcat_meta_csv,
     )
 
 
