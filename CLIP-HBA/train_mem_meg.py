@@ -44,7 +44,7 @@ from functions.train_mem_pipeline import run_mem_training
 # ---------------------------------------------------------------------------
 # Timepoint parameters
 # ---------------------------------------------------------------------------
-_ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 100))  # 15 timepoints
+_ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 5))   # 281 timepoints at 5 ms resolution
 
 
 def main() -> None:
