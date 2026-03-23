@@ -686,6 +686,7 @@ def _run_mem_training_impl(config, run_timestamp):
             hidden_dims=config.get('hidden_dims', (256, 128)),
             dropout_rate=config.get('dropout_rate', 0.5),
             activation=config.get('activation', 'relu'),
+            input_dim=config.get('input_dim', 768),
         )
     elif model_type == 'clip_hba_mem':
         model = CLIPHBAMem(
