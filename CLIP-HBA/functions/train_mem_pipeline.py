@@ -366,7 +366,7 @@ class CLIPFrozenMLP(nn.Module):
 
 
 class MLPOnlyHead(nn.Module):
-    """Lightweight MLP head that operates directly on precomputed 768-dim embeddings.
+    """Lightweight MLP head that operates directly on precomputed embeddings.
 
     Drop-in replacement for CLIPHBAMem / CLIPFrozenMLP when training on
     precomputed embeddings.  Contains no backbone — the forward pass is
@@ -376,7 +376,7 @@ class MLPOnlyHead(nn.Module):
     _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
 
     def __init__(self, hidden_dims: tuple = (256, 128), dropout_rate: float = 0.5,
-                 input_dim: int = 768, activation: str = 'relu') -> None:
+                 input_dim: int = 66, activation: str = 'relu') -> None:
         super().__init__()
         if activation not in self._ACTIVATIONS:
             raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')

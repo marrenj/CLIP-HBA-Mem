@@ -8,11 +8,12 @@ backbone *once*, saves embeddings alongside memorability scores and image
 paths, and then training uses EmbeddingDataset or MEGEmbeddingDataset (defined
 in functions/train_mem_pipeline.py) to serve in-memory tensors.
 
-For clip_hba_meg_mem the backbone also produces a **timepoint-specific** 768-dim
-representation: a learned weighted sum of all 24 ViT layer CLS-token
-projections, where per-layer weights come from the MEG model's trained
-``weighting_matrix[t, :]``.  Because this differs across the T MEG timepoints,
-the output is ``Tensor[N, T, 768]`` (float16) rather than ``Tensor[N, 768]``.
+For clip_hba_meg_mem the full ``ModifiedCLIP.forward()`` pipeline is run for each
+training timepoint, producing a **66-dim semantic embedding** per timepoint: the
+768-dim weighted layer representation is projected onto 66 SPoSE concept dimensions
+(semantic binding), then scaled and noise-injected (Stage 3).  Because this differs
+across the T MEG timepoints, the output is ``Tensor[N, T, 66]`` (float16) rather
+than ``Tensor[N, 768]``.
 
 Expected speedup: ~100x per epoch (seconds rather than ~7.5 minutes).
 
@@ -210,16 +211,18 @@ def _compute_meg_features_batch(
     train_end: int,
     train_window_size: int,
     device: torch.device,
+    text_features_stacked: torch.Tensor,
+    rng: torch.Generator,
 ) -> torch.Tensor:
-    """Compute per-timepoint visual features for a batch of images.
+    """Compute per-timepoint semantic embeddings for a batch of images.
 
     Runs a single ViT forward pass (via ``encode_image``) to collect all 24
-    layer outputs, then applies the MEG model's learned ``weighting_matrix``
-    to produce a 768-dim feature vector for each of the T training timepoints.
+    layer outputs, then replicates the full ``ModifiedCLIP.forward()`` pipeline
+    (``src/models/CLIPs/clip_hba_meg/model.py``) for each training timepoint:
 
-    This exactly replicates the image-feature computation in
-    ``ModifiedCLIP.forward()`` (``src/models/CLIPs/clip_hba_meg/model.py``),
-    minus the text encoder and noise injection.
+    - **Stage 1** — weighted sum of 24 layer CLS-token projections → [B, 768]
+    - **Stage 2** — semantic binding: logit_scale * (image_features @ text.T) → [B, 66]
+    - **Stage 3** — ReLU + beta scaling + dimension-specific Gaussian noise (v4) → [B, 66]
 
     Args:
         model: Frozen ``CLIPHBA`` MEG model.
@@ -228,9 +231,14 @@ def _compute_meg_features_batch(
         train_start, train_step, train_end: Training timepoint range.
         train_window_size: Half-window (ms) used during MEG training.
         device: Compute device.
+        text_features_stacked: Precomputed normalised text features [66, 768] float32.
+            Computed once per split in ``extract_embeddings_for_fold``.
+        rng: Seeded ``torch.Generator`` used for all stochastic ops in Stage 3.
+            Created once per split so noise is deterministic given the same seed
+            and batch order.
 
     Returns:
-        Tensor[B, T, 768] float16 — one 768-dim feature per training timepoint.
+        Tensor[B, T, 66] float16 — one 66-dim semantic embedding per training timepoint.
     """
     clip_model = model.clip_model
     pos_embedding = model.pos_embedding
@@ -242,6 +250,7 @@ def _compute_meg_features_batch(
     n_train = (train_end - train_start) // train_step + 1
     n_total = (ms_end - ms_start) // ms_step + 1
     B = images.size(0)
+    logit_scale = clip_model.logit_scale.exp().float()
 
     features_list = []
     for i in range(n_train):
@@ -250,6 +259,7 @@ def _compute_meg_features_batch(
         start_idx = max(0, int(time_index - train_window_size // ms_step))
         end_idx   = min(int(time_index + train_window_size // ms_step + 1), n_total)
 
+        # Stage 1: weighted sum of layer CLS-token projections → [B, 768]
         weights = clip_model.weighting_matrix[start_idx:end_idx].mean(dim=0)
         weights = _normalize_weights_minmax(weights).to(device)         # [24]
         visual_scaler = clip_model.visual_scaler[start_idx:end_idx].mean()  # scalar
@@ -260,9 +270,22 @@ def _compute_meg_features_batch(
             cls_proj = layer_out[:, 0, :].float() @ clip_model.visual.proj.float()
             image_features += cls_proj * (weights[j] * visual_scaler.float())
 
-        features_list.append(image_features.half().cpu())  # save RAM as float16
+        # Stage 2: semantic binding → [B, 66]
+        logits = logit_scale * (image_features @ text_features_stacked.t())
 
-    return torch.stack(features_list, dim=1)  # [B, T, 768] float16
+        # Stage 3: ReLU + beta + dimension-specific Gaussian noise (v4)
+        beta_scaler = clip_model.beta[start_idx:end_idx].mean().float()
+        noise_level = clip_model.noise_level[int(time_index)].float()
+        raw_emb = F.relu(logits)
+        noise = torch.randn(B, clip_model.n_dim, device=device, generator=rng) \
+                * raw_emb.std(dim=0, keepdim=True)
+        pred_emb = F.relu(
+            beta_scaler * (raw_emb + noise * noise_level)
+        ) + (torch.rand(B, clip_model.n_dim, device=device, generator=rng) * 1e-5 + 1e-6)
+
+        features_list.append(pred_emb.half().cpu())  # save RAM as float16
+
+    return torch.stack(features_list, dim=1)  # [B, T, 66] float16
 
 
 def extract_embeddings_for_fold(
@@ -290,6 +313,7 @@ def extract_embeddings_for_fold(
     meg_train_step: int = 100,
     meg_train_end: int = 1300,
     meg_train_window_size: int = 300,
+    seed: int = 42,
 ) -> None:
     """Extract and save embeddings for all three splits of one fold.
 
@@ -307,7 +331,7 @@ def extract_embeddings_for_fold(
     For ``clip_hba_meg_mem``, saves::
 
         {
-            'embeddings':    Tensor[N, T, 768],  # float16 to keep file size manageable
+            'embeddings':    Tensor[N, T, 66],   # float16 to keep file size manageable
             'scores':        Tensor[N],
             'image_paths':   list[N],
             'timepoints_ms': Tensor[T],          # MEG timepoints in milliseconds
@@ -315,6 +339,8 @@ def extract_embeddings_for_fold(
 
     Args:
         model_type: ``'clip_hba_mem'``, ``'clip_frozen_mlp'``, or ``'clip_hba_meg_mem'``.
+        seed: Random seed passed to the ``torch.Generator`` used for Gaussian noise
+            in Stage 3 of the MEG pipeline.  Has no effect for other model types.
         fold: Fold number used in output filenames.
         train_csv: Path to the training split CSV.
         val_csv: Path to the validation split CSV.
@@ -368,6 +394,15 @@ def extract_embeddings_for_fold(
         model.eval()
         model.to(device)
 
+        # Precompute normalised text features once (not per batch).
+        # model.tokenized_prompts is [66, 1, 77]; iterate to match ModifiedCLIP.forward().
+        tokenized_prompts = model.tokenized_prompts.to(device)
+        with torch.no_grad():
+            tf = torch.stack([model.clip_model.encode_text(p) for p in tokenized_prompts])
+            tf = tf.float()
+            tf = tf / tf.norm(dim=-1, keepdim=True)
+            text_features_stacked = tf.view(-1, tf.size(-1))  # [66, 768] float32
+
         for split_name, csv_path in splits.items():
             out_path = out_dir / f'{model_type}_fold{fold}_{split_name}.pt'
             if out_path.exists():
@@ -391,14 +426,18 @@ def extract_embeddings_for_fold(
             all_scores:      list = []
             all_image_paths: list = []
 
+            # Seed the RNG once per split so noise is identical across extraction runs.
+            rng = torch.Generator(device=device)
+            rng.manual_seed(seed)
+
             print(f'\n[{model_type} | fold {fold} | {split_name}]  '
-                  f'{len(dataset)} images  ->  {out_path}')
-            print(f'  Output shape per image: [T={T}, 768] float16')
+                  f'{len(dataset)} images  ->  {out_path}  (seed={seed})')
+            print(f'  Output shape per image: [T={T}, 66] float16')
 
             with tqdm(loader, desc=f'  {split_name}') as pbar:
                 for image_paths, images, scores in pbar:
                     images = images.to(device)
-                    # [B, T, 768] float16 (computed on GPU, moved to CPU)
+                    # [B, T, 66] float16 (computed on GPU, moved to CPU)
                     emb = _compute_meg_features_batch(
                         model=model,
                         images=images,
@@ -410,12 +449,14 @@ def extract_embeddings_for_fold(
                         train_end=meg_train_end,
                         train_window_size=meg_train_window_size,
                         device=device,
+                        text_features_stacked=text_features_stacked,
+                        rng=rng,
                     )
                     all_embeddings.append(emb)
                     all_scores.append(scores.cpu())
                     all_image_paths.extend(image_paths)
 
-            emb_tensor = torch.cat(all_embeddings, dim=0)   # [N, T, 768] float16
+            emb_tensor = torch.cat(all_embeddings, dim=0)   # [N, T, 66] float16
             payload = {
                 'embeddings':    emb_tensor,
                 'scores':        torch.cat(all_scores, dim=0),
@@ -424,8 +465,8 @@ def extract_embeddings_for_fold(
             }
             torch.save(payload, out_path)
             size_gb = emb_tensor.numel() * 2 / 1e9  # float16 = 2 bytes
-            print(f'  Saved {emb_tensor.shape[0]:,} images × {T} timepoints × 768 dims'
-                  f'  ({size_gb:.1f} GB)  ->  {out_path}')
+            print(f'  Saved {emb_tensor.shape[0]:,} images × {T} timepoints × 66 dims'
+                  f'  ({size_gb:.2f} GB)  ->  {out_path}')
 
         model.cpu()
         del model
@@ -638,6 +679,7 @@ def main() -> None:
         meg_train_step=args.meg_train_step,
         meg_train_end=args.meg_train_end,
         meg_train_window_size=args.meg_train_window_size,
+        seed=args.seed,
     )
 
 

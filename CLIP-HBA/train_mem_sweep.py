@@ -135,19 +135,20 @@ BASE_CONFIG = {
 # Categorical parameters keep the same options as the original grid search.
 # ---------------------------------------------------------------------------
 SEARCH_SPACE: dict = {
-    # Architecture — categorical; same options as the original grid
-    'hidden_dims':  ['(512, 256)', '(256, 128)', '(512, 256, 128)', '(256,)'],
+    # Architecture — categorical; covers compression-only (h <= 66), expand-then-compress
+    # (h > 66), and a linear baseline with no hidden layers.
+    'hidden_dims':  ['()', '(32,)', '(64,)', '(64, 32)', '(128,)', '(128, 32)', '(256, 64)'],
 
-    # Regularisation — continuous uniform; wider than the original [0.3, 0.5]
-    'dropout_rate': (0.1, 0.7),
+    # Regularisation — continuous uniform
+    'dropout_rate': (0.2, 0.7),
 
-    # Optimisation — log-uniform; covers the original [1e-5, 1e-4] range and beyond
+    # Optimisation — log-uniform
     'lr':           (1e-5, 5e-4),
 
     # Regularisation — AdamW weight decay, log-uniform over a wide range
     'weight_decay': (1e-5, 1e-1),
 
-    # Batch size — categorical; extended to include 16 and 128
+    # Batch size — categorical
     'batch_size':   [32, 64, 128, 256],
 }
 

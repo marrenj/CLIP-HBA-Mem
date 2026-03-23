@@ -57,11 +57,13 @@ BASE_CONFIG = {
 }
 
 # ---------------------------------------------------------------------------
-# Search grid   (4 x 2 x 3 x 2 = 48 total combinations)
+# Search grid   (7 x 3 x 3 x 2 = 126 total combinations)
+# Covers both compression-only (h <= 66) and expand-then-compress (h > 66)
+# architectures, plus a linear baseline with no hidden layers.
 # ---------------------------------------------------------------------------
 SWEEP_GRID = {
-    'hidden_dims':  [(512, 256), (256, 128), (512, 256, 128), (256,)],
-    'dropout_rate': [0.3, 0.5],
+    'hidden_dims':  [(), (32,), (64,), (64, 32), (128,), (128, 32), (256, 64)],
+    'dropout_rate': [0.3, 0.5, 0.7],
     'lr':           [1e-4, 5e-5, 1e-5],
     'batch_size':   [32, 64],
 }
