@@ -8,7 +8,7 @@ backbone *once*, saves embeddings alongside memorability scores and image
 paths, and then training uses EmbeddingDataset or MEGEmbeddingDataset (defined
 in functions/train_mem_pipeline.py) to serve in-memory tensors.
 
-For clip_hba_meg the backbone also produces a **timepoint-specific** 768-dim
+For clip_hba_meg_mem the backbone also produces a **timepoint-specific** 768-dim
 representation: a learned weighted sum of all 24 ViT layer CLS-token
 projections, where per-layer weights come from the MEG model's trained
 ``weighting_matrix[t, :]``.  Because this differs across the T MEG timepoints,
@@ -73,7 +73,7 @@ from functions.train_mem_pipeline import (
 )
 from functions.train_behavior_things_pipeline import seed_everything
 
-# Allow imports from the project root (needed for clip_hba_meg).
+# Allow imports from the project root (needed for clip_hba_meg_mem).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
@@ -126,7 +126,7 @@ def _build_backbone_and_extractor(
     else:
         raise ValueError(
             f'Unknown model_type: {model_type!r}. '
-            f'Choose "clip_hba_mem", "clip_frozen_mlp", or "clip_hba_meg".'
+            f'Choose "clip_hba_mem", "clip_frozen_mlp", or "clip_hba_meg_mem".'
         )
 
     return model, DatasetClass, embed_fn
@@ -282,7 +282,7 @@ def extract_embeddings_for_fold(
     transformer_layers: int = 1,
     rank: int = 32,
     memcat_meta_csv: 'str | None' = None,
-    # MEG-specific parameters (only used when model_type == 'clip_hba_meg')
+    # MEG-specific parameters (only used when model_type == 'clip_hba_meg_mem')
     meg_ms_start: int = -100,
     meg_ms_step: int = 5,
     meg_ms_end: int = 1300,
@@ -304,7 +304,7 @@ def extract_embeddings_for_fold(
             'image_paths': list[N],
         }
 
-    For ``clip_hba_meg``, saves::
+    For ``clip_hba_meg_mem``, saves::
 
         {
             'embeddings':    Tensor[N, T, 768],  # float16 to keep file size manageable
@@ -314,7 +314,7 @@ def extract_embeddings_for_fold(
         }
 
     Args:
-        model_type: ``'clip_hba_mem'``, ``'clip_frozen_mlp'``, or ``'clip_hba_meg'``.
+        model_type: ``'clip_hba_mem'``, ``'clip_frozen_mlp'``, or ``'clip_hba_meg_mem'``.
         fold: Fold number used in output filenames.
         train_csv: Path to the training split CSV.
         val_csv: Path to the validation split CSV.
@@ -346,7 +346,7 @@ def extract_embeddings_for_fold(
     # ------------------------------------------------------------------
     # MEG path: produces [N, T, 768] float16 output per split
     # ------------------------------------------------------------------
-    if model_type == 'clip_hba_meg':
+    if model_type == 'clip_hba_meg_mem':
         timepoints_ms = torch.arange(
             meg_train_start, meg_train_end + 1, meg_train_step, dtype=torch.int32
         )
@@ -516,7 +516,7 @@ def main() -> None:
     parser.add_argument(
         '--model_type',
         default=os.environ.get('MODEL_TYPE', 'clip_frozen_mlp'),
-        choices=['clip_hba_mem', 'clip_frozen_mlp', 'clip_hba_meg'],
+        choices=['clip_hba_mem', 'clip_frozen_mlp', 'clip_hba_meg_mem'],
         help='Which frozen backbone to extract from.',
     )
     parser.add_argument(
