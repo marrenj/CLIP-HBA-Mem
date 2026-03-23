@@ -1,16 +1,19 @@
-"""Pre-extract 66-dim CLIP-HBA-MEG embeddings at each sampled timepoint.
+"""Pre-extract 66-dim CLIP-HBA-MEG embeddings at each timepoint.
 
 The CLIP-HBA-MEG model produces a 66-dimensional semantic embedding at every
-sampled timepoint via its alpha/beta/noise parameters and weighted ViT-layer
+5 ms timepoint via its alpha/beta/noise parameters and weighted ViT-layer
 aggregation.  Because the MEG backbone is fully frozen during memorability
-training, its outputs are deterministic (eval mode suppresses stochastic noise)
-and can be pre-computed once per fold, yielding a large speedup during the
-Bayesian hyperparameter sweep and per-timepoint MLP head training.
+training, its outputs can be pre-computed once per fold, yielding a large
+speedup during the Bayesian hyperparameter sweep and per-timepoint MLP head
+training.
+
+Each embedding is extracted using the **exact** parameters learned for that
+specific timepoint — no averaging over neighbouring timepoints.
 
 Timepoint configuration (defaults)
 ------------------------------------
-  * Every 100 ms from -100 ms to 1300 ms  →  15 sampled timepoints
-  * 300 ms averaging window  →  train_window_size = 150  (±150 ms half-width)
+  * Every 5 ms from -100 ms to 1300 ms  →  281 timepoints
+  * No temporal averaging window  (train_window_size = 0)
   * Full model resolution:  ms_start=-100, ms_end=1300, ms_step=5
 
 Output files
@@ -27,7 +30,7 @@ Each ``.pt`` file is a dict::
 
 Usage
 -----
-    # Single fold (combined LaMem + MemCat):
+    # Single fold (combined LaMem + MemCat), all 281 timepoints:
     python extract_embeddings_meg.py \\
         --meg_checkpoint ./models/cliphba_meg_group.pth \\
         --fold 1 --cuda 0
@@ -36,6 +39,11 @@ Usage
     python extract_embeddings_meg.py \\
         --meg_checkpoint ./models/cliphba_meg_group.pth \\
         --training_data lamem --fold 1 --cuda 0
+
+    # Coarser stride (e.g. every 100 ms) for quick testing:
+    python extract_embeddings_meg.py \\
+        --meg_checkpoint ./models/cliphba_meg_group.pth \\
+        --fold 1 --extract_step 100 --cuda 0
 
     # All folds:
     for FOLD in $(seq 1 10); do
@@ -50,7 +58,6 @@ import os
 import pathlib
 import sys
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -67,17 +74,17 @@ from functions.train_mem_pipeline import MemDataset
 # ---------------------------------------------------------------------------
 # Timepoint configuration
 # ---------------------------------------------------------------------------
-MEG_MS_START:        int = -100   # full model temporal range (must match checkpoint)
-MEG_MS_END:          int = 1300
-MEG_MS_STEP:         int = 5
+MEG_MS_START:      int = -100   # full model temporal range (must match checkpoint)
+MEG_MS_END:        int = 1300
+MEG_MS_STEP:       int = 5
 
-EXTRACT_START:       int = -100   # sampled timepoints for extraction
-EXTRACT_END:         int = 1300
-EXTRACT_STEP:        int = 100    # every 100 ms  →  15 timepoints
+EXTRACT_START:     int = -100   # first timepoint to extract
+EXTRACT_END:       int = 1300   # last timepoint to extract (inclusive)
+EXTRACT_STEP:      int = 5      # stride in ms; 5 = full model resolution (281 timepoints)
 
-TRAIN_WINDOW_SIZE:   int = 150    # ±150 ms half-window  →  300 ms total averaging window
+TRAIN_WINDOW_SIZE: int = 0      # no averaging window — use exact parameters per timepoint
 
-MODEL_TYPE_BASE:     str = 'clip_hba_meg_mem'
+MODEL_TYPE_BASE:   str = 'clip_hba_meg_mem'
 
 
 # ---------------------------------------------------------------------------
@@ -89,38 +96,42 @@ def _build_meg_model(
     vision_layers: int,
     transformer_layers: int,
     rank: int,
+    extract_step: int = EXTRACT_STEP,
+    train_window_size: int = TRAIN_WINDOW_SIZE,
 ) -> CLIPHBA:
     """Instantiate and load a pretrained CLIP-HBA-MEG model for embedding extraction.
 
-    The model is configured to sample timepoints every EXTRACT_STEP ms from
-    EXTRACT_START to EXTRACT_END with a TRAIN_WINDOW_SIZE ms half-window.
-    DoRA is applied with the same architecture as inference_meg_group_pipeline.py.
+    The model is configured to iterate over timepoints from EXTRACT_START to
+    EXTRACT_END in steps of ``extract_step`` ms, using ``train_window_size=0``
+    so that each timepoint's embedding uses only the exact parameters learned
+    for that timepoint (no averaging over neighbours).
 
     Args:
-        meg_checkpoint:      Path to the trained CLIP-HBA-MEG state dict.
-        vision_layers:       Number of ViT layers with DoRA (must match checkpoint).
-        transformer_layers:  Number of text-transformer layers with DoRA.
-        rank:                DoRA rank (must match checkpoint).
+        meg_checkpoint:    Path to the trained CLIP-HBA-MEG state dict.
+        vision_layers:     Number of ViT layers with DoRA (must match checkpoint).
+        transformer_layers: Number of text-transformer layers with DoRA.
+        rank:              DoRA rank (must match checkpoint).
+        extract_step:      Stride in ms between extracted timepoints.
+        train_window_size: Temporal averaging half-width in ms.  Must be 0 for
+                           exact (no-window) extraction.
 
     Returns:
-        CLIPHBA model in eval mode, all parameters frozen.
+        CLIPHBA model in eval mode with all parameters frozen.
     """
     classnames = classnames66  # list of 66 semantic dimension strings
-
-    pos_embedding = True  # ViT-L/14 uses positional embeddings
 
     model = CLIPHBA(
         classnames=classnames,
         weighting_matrix=None,
         backbone_name='ViT-L/14',
-        pos_embedding=pos_embedding,
+        pos_embedding=True,   # ViT-L/14 uses positional embeddings
         ms_start=MEG_MS_START,
         ms_step=MEG_MS_STEP,
         ms_end=MEG_MS_END,
         train_start=EXTRACT_START,
-        train_step=EXTRACT_STEP,
+        train_step=extract_step,
         train_end=EXTRACT_END,
-        train_window_size=TRAIN_WINDOW_SIZE,
+        train_window_size=train_window_size,
     )
 
     # Apply DoRA layers (same ordering as inference_meg_group_pipeline.py)
@@ -171,13 +182,15 @@ def extract_meg_embeddings_for_fold(
     vision_layers: int = 24,
     transformer_layers: int = 1,
     rank: int = 32,
+    extract_step: int = EXTRACT_STEP,
+    train_window_size: int = TRAIN_WINDOW_SIZE,
     memcat_meta_csv: 'str | None' = None,
 ) -> None:
     """Extract and save 66-dim MEG embeddings for every timepoint and split.
 
-    For each of the 15 sampled timepoints (EXTRACT_START to EXTRACT_END in steps
-    of EXTRACT_STEP), one ``.pt`` file is saved per split.  Files that already
-    exist are skipped so the script is safe to re-run after interruption.
+    For each timepoint from EXTRACT_START to EXTRACT_END (stride ``extract_step``
+    ms), one ``.pt`` file is saved per split.  Files that already exist are
+    skipped so the script is safe to re-run after interruption.
 
     Args:
         meg_checkpoint:     Path to the trained CLIP-HBA-MEG state dict.
@@ -193,35 +206,38 @@ def extract_meg_embeddings_for_fold(
         vision_layers:      ViT DoRA layers (must match checkpoint).
         transformer_layers: Text-transformer DoRA layers (must match checkpoint).
         rank:               DoRA rank (must match checkpoint).
+        extract_step:       Stride in ms between extracted timepoints (default 5).
+        train_window_size:  Temporal averaging half-width in ms (default 0 = exact).
         memcat_meta_csv:    Path to memcat_image_data.csv (combined dataset only).
     """
     out_dir_path = pathlib.Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    # Determine which timepoints will be produced by the model forward pass
-    sampled_tps = list(range(EXTRACT_START, EXTRACT_END + 1, EXTRACT_STEP))
+    sampled_tps  = list(range(EXTRACT_START, EXTRACT_END + 1, extract_step))
     n_timepoints = len(sampled_tps)
 
-    # Build output path template — timepoint is filled in the inner loop
     def _out_path(tp_ms: int, split: str) -> pathlib.Path:
         return out_dir_path / f'{MODEL_TYPE_BASE}_tp{tp_ms}_fold{fold}_{split}.pt'
 
-    # Check if all files already exist (fold-level skip)
     splits = {'train': train_csv, 'val': val_csv, 'test': test_csv}
+
+    # Skip entire fold if all output files already exist
     all_exist = all(
         _out_path(tp, split).exists()
         for tp in sampled_tps
         for split in splits
     )
     if all_exist:
-        print(f'[Skip] All files for fold {fold} already exist — delete them to re-extract.')
+        print(f'[Skip] All files for fold {fold} already exist — delete to re-extract.')
         return
 
-    model = _build_meg_model(meg_checkpoint, vision_layers, transformer_layers, rank)
+    model = _build_meg_model(
+        meg_checkpoint, vision_layers, transformer_layers, rank,
+        extract_step=extract_step, train_window_size=train_window_size,
+    )
     model.to(device)
 
     for split_name, csv_path in splits.items():
-        # Check if all timepoints for this split already exist
         if all(_out_path(tp, split_name).exists() for tp in sampled_tps):
             print(f'[Skip] All timepoints for fold {fold} / {split_name} exist.')
             continue
@@ -243,8 +259,7 @@ def extract_meg_embeddings_for_fold(
         print(f'\n[MEG | fold {fold} | {split_name}]  {n_images} images  '
               f'->  {n_timepoints} timepoints  |  out: {out_dir_path}')
 
-        # Accumulate embeddings for all timepoints simultaneously
-        # Shape: [n_timepoints, N, 66]
+        # Accumulate embeddings for all timepoints in a single pass
         all_embeddings_per_tp: list[list] = [[] for _ in range(n_timepoints)]
         all_scores:      list = []
         all_image_paths: list = []
@@ -252,7 +267,7 @@ def extract_meg_embeddings_for_fold(
         with torch.no_grad(), tqdm(loader, desc=f'  {split_name}') as pbar:
             for image_paths, images, scores in pbar:
                 images = images.to(device)
-                # Forward pass: pred_emb_3d shape [n_timepoints, batch, 66]
+                # pred_emb_3d: [n_timepoints, batch, 66]
                 pred_emb_3d, _, _ = model(images)
                 pred_emb_3d = pred_emb_3d.float().cpu()
 
@@ -272,15 +287,14 @@ def extract_meg_embeddings_for_fold(
 
             embeddings_tensor = torch.cat(all_embeddings_per_tp[t_idx], dim=0)  # [N, 66]
             payload = {
-                'embeddings':  embeddings_tensor,    # Tensor[N, 66]
-                'scores':      all_scores_tensor,    # Tensor[N]
-                'image_paths': all_image_paths,      # list[N]
+                'embeddings':  embeddings_tensor,
+                'scores':      all_scores_tensor,
+                'image_paths': all_image_paths,
             }
             torch.save(payload, out_path)
             print(f'  tp={tp_ms:+5d} ms  ->  {out_path.name}  '
                   f'(shape {tuple(embeddings_tensor.shape)})')
 
-    # Release GPU memory before next fold
     model.cpu()
     del model
     if device.type == 'cuda':
@@ -293,7 +307,7 @@ def extract_meg_embeddings_for_fold(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description='Pre-extract 66-dim CLIP-HBA-MEG embeddings at each sampled timepoint.',
+        description='Pre-extract 66-dim CLIP-HBA-MEG embeddings at each timepoint.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -333,7 +347,15 @@ def main() -> None:
         default=None,
         help='Output directory for .pt embedding files.  Defaults to '
              './Data/lamem/meg_embeddings/ or '
-             './Data/combined_lamem_memcat/meg_embeddings/ depending on training_data.',
+             './Data/combined_lamem_memcat/meg_embeddings/.',
+    )
+    parser.add_argument(
+        '--extract_step',
+        type=int,
+        default=int(os.environ.get('EXTRACT_STEP', EXTRACT_STEP)),
+        help='Stride in ms between extracted timepoints.  '
+             f'Default {EXTRACT_STEP} ms = full model resolution (281 timepoints).  '
+             'Use 100 for a coarser 15-timepoint grid.',
     )
     parser.add_argument(
         '--vision_layers',
@@ -406,11 +428,13 @@ def main() -> None:
         memcat_meta_csv = args.memcat_meta_csv
         out_dir = args.out_dir or './Data/combined_lamem_memcat/meg_embeddings/'
 
+    n_tps = len(range(EXTRACT_START, EXTRACT_END + 1, args.extract_step))
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')
-    print(f'  Timepoints:     {EXTRACT_START} to {EXTRACT_END} ms, step {EXTRACT_STEP} ms')
-    print(f'  Window:         ±{TRAIN_WINDOW_SIZE} ms ({2*TRAIN_WINDOW_SIZE} ms total)')
+    print(f'  Timepoints:     {EXTRACT_START} to {EXTRACT_END} ms, '
+          f'step {args.extract_step} ms  ({n_tps} total)')
+    print(f'  Window:         none (exact per-timepoint parameters)')
     print(f'  Output dir:     {out_dir}')
     print(f'  Device:         {device}')
     print()
@@ -429,6 +453,8 @@ def main() -> None:
         vision_layers=args.vision_layers,
         transformer_layers=args.transformer_layers,
         rank=args.rank,
+        extract_step=args.extract_step,
+        train_window_size=TRAIN_WINDOW_SIZE,
         memcat_meta_csv=memcat_meta_csv,
     )
 

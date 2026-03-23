@@ -54,7 +54,7 @@ from functions.train_behavior_things_pipeline import seed_everything
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 100))  # 15 timepoints
+ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 5))   # 281 timepoints at 5 ms resolution
 INPUT_DIM:       int       = 66
 MODEL_TYPE_BASE: str       = 'clip_hba_meg_mem'
 
