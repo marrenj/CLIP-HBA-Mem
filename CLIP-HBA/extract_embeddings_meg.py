@@ -118,7 +118,7 @@ def _build_meg_model(
     Returns:
         CLIPHBA model in eval mode with all parameters frozen.
     """
-    classnames = classnames66  # list of 66 semantic dimension strings
+    classnames = [x[0] for x in classnames66]  # matches inference_meg_group_pipeline.py
 
     model = CLIPHBA(
         classnames=classnames,
@@ -151,9 +151,9 @@ def _build_meg_model(
     )
 
     print(f'[MEG] Loading checkpoint: {meg_checkpoint}')
-    state_dict = torch.load(meg_checkpoint, map_location='cpu')
+    state_dict = torch.load(meg_checkpoint)
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
+    model.load_state_dict(state_dict)
     print('[MEG] Checkpoint loaded successfully.')
 
     # Freeze all parameters — backbone is always frozen during memorability training
