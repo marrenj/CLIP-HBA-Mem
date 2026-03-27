@@ -460,10 +460,12 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                     epochs, early_stopping_patience=10,
                     checkpoint_path='clip_hba_mem.pth',
                     test_loader=None,
-                    fold=1, preds_dir=None, run_timestamp=None):
+                    fold=1, preds_dir=None, run_timestamp=None,
+                    save_checkpoint=True):
     """Train model and return the Spearman ρ recorded at the best-loss checkpoint."""
     run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    checkpoint_path = str(pathlib.Path(checkpoint_path))
+    if checkpoint_path is not None:
+        checkpoint_path = str(pathlib.Path(checkpoint_path))
     if preds_dir is not None:
         preds_dir = os.path.join(preds_dir, run_timestamp)
         os.makedirs(preds_dir, exist_ok=True)
@@ -473,12 +475,16 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     best_rho = float('-inf')
     epochs_no_improve = 0
 
-    history_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv'
     history_fields = ['epoch', 'train_loss', 'val_loss', 'spearman_rho', 'pred_std']
-    history_file = open(history_path, 'w', newline='')
-    history_writer = csv.DictWriter(history_file, fieldnames=history_fields)
-    history_writer.writeheader()
-    history_file.flush()
+    if checkpoint_path is not None:
+        history_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv'
+        history_file = open(history_path, 'w', newline='')
+        history_writer = csv.DictWriter(history_file, fieldnames=history_fields)
+        history_writer.writeheader()
+        history_file.flush()
+    else:
+        history_file = None
+        history_writer = None
 
     # Initial evaluation
     save_path = os.path.join(preds_dir, f'epoch_000_fold{fold}.csv') if preds_dir else None
@@ -518,23 +524,25 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
               f'Spearman r: {rho:.4f}  |  '
               f'Pred std: {pred_std:.4f}')
 
-        history_writer.writerow({
-            'epoch': epoch + 1,
-            'train_loss': avg_train_loss,
-            'val_loss': avg_val_loss,
-            'spearman_rho': rho,
-            'pred_std': pred_std,
-        })
-        history_file.flush()
+        if history_writer is not None:
+            history_writer.writerow({
+                'epoch': epoch + 1,
+                'train_loss': avg_train_loss,
+                'val_loss': avg_val_loss,
+                'spearman_rho': rho,
+                'pred_std': pred_std,
+            })
+            history_file.flush()
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_rho = rho  # record rho at the checkpoint epoch
             epochs_no_improve = 0
-            chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
-            os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
-            torch.save(model.state_dict(), chk_path)
-            print(f'  -> Checkpoint saved (epoch {epoch+1})')
+            if save_checkpoint and checkpoint_path is not None:
+                chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
+                os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
+                torch.save(model.state_dict(), chk_path)
+                print(f'  -> Checkpoint saved (epoch {epoch+1})')
         else:
             epochs_no_improve += 1
         print(f'Epochs without improvement: {epochs_no_improve}')
@@ -547,11 +555,13 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                 print(f'Final Test MSE: {test_loss:.4f}  |  '
                       f'Final Test Spearman r: {test_rho:.4f}  |  '
                       f'Final Test Pred std: {test_pred_std:.4f}')
-            history_file.close()
+            if history_file is not None:
+                history_file.close()
             break
 
     else:
-        history_file.close()
+        if history_file is not None:
+            history_file.close()
 
     return best_val_loss, best_rho
 
@@ -779,6 +789,7 @@ def _run_mem_training_impl(config, run_timestamp):
         test_loader,
         config['fold'],
         preds_dir=config.get('preds_dir', None),
-        run_timestamp=run_timestamp
+        run_timestamp=run_timestamp,
+        save_checkpoint=config.get('save_checkpoint', True),
     )
     return best_rho

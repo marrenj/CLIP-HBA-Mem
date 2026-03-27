@@ -120,9 +120,24 @@ def _build_meg_model(
     """
     classnames = classnames66  # list of 66 semantic dimension strings
 
+    weighting_matrix = None
+    beta             = None
+    noise_level      = None
+    visual_scaler    = None
+    text_dora_r      = 32
+    text_dora_dropout = 0.1
+
+    print(f'[MEG] Building CLIPHBA  backbone=ViT-L/14  '
+          f'ms=[{MEG_MS_START}, {MEG_MS_END}] step={MEG_MS_STEP} ms  '
+          f'extract=[{EXTRACT_START}, {EXTRACT_END}] step={extract_step} ms  '
+          f'window={train_window_size} ms')
+    print(f'[MEG] Init params:  weighting_matrix={weighting_matrix}  beta={beta}  '
+          f'noise_level={noise_level}  visual_scaler={visual_scaler}  '
+          f'(scalar values populated from checkpoint)')
+
     model = CLIPHBA(
         classnames=classnames,
-        weighting_matrix=None,
+        weighting_matrix=weighting_matrix,
         backbone_name='ViT-L/14',
         pos_embedding=True,   # ViT-L/14 uses positional embeddings
         ms_start=MEG_MS_START,
@@ -132,6 +147,9 @@ def _build_meg_model(
         train_step=extract_step,
         train_end=EXTRACT_END,
         train_window_size=train_window_size,
+        beta=beta,
+        noise_level=noise_level,
+        visual_scaler=visual_scaler,
     )
 
     # Apply DoRA layers (same ordering as inference_meg_group_pipeline.py)
@@ -139,22 +157,47 @@ def _build_meg_model(
         model,
         n_vision_layers=0,
         n_transformer_layers=transformer_layers,
-        r=32,
-        dora_dropout=0.1,
+        r=text_dora_r,
+        dora_dropout=text_dora_dropout,
     )
+    print(f'[DoRA] Applied to text transformer: '
+          f'n_transformer_layers={transformer_layers}  r={text_dora_r}  dropout={text_dora_dropout}')
+
+    vision_dora_dropout = 0.1
     apply_dora_to_ViT(
         model,
         n_vision_layers=vision_layers,
         n_transformer_layers=0,
         r=rank,
-        dora_dropout=0.1,
+        dora_dropout=vision_dora_dropout,
     )
+    print(f'[DoRA] Applied to vision encoder: '
+          f'n_vision_layers={vision_layers}  r={rank}  dropout={vision_dora_dropout}')
 
     print(f'[MEG] Loading checkpoint: {meg_checkpoint}')
     state_dict = torch.load(meg_checkpoint, map_location='cpu')
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
     print('[MEG] Checkpoint loaded successfully.')
+
+    # Confirm learned scalar parameters loaded from checkpoint
+    clip_model = model.clip_model
+    beta_val         = getattr(clip_model, 'beta',         None)
+    noise_val        = getattr(clip_model, 'noise_level',  None)
+    scaler_val       = getattr(clip_model, 'visual_scaler', None)
+    wmatrix_val      = getattr(clip_model, 'weighting_matrix', None)
+
+    def _fmt(t):
+        if t is None:
+            return 'None'
+        if hasattr(t, 'shape'):
+            return f'Tensor{list(t.shape)}  min={t.min().item():.4f}  max={t.max().item():.4f}'
+        return repr(t)
+
+    print(f'[Checkpoint] beta          = {_fmt(beta_val)}')
+    print(f'[Checkpoint] noise_level   = {_fmt(noise_val)}')
+    print(f'[Checkpoint] visual_scaler = {_fmt(scaler_val)}')
+    print(f'[Checkpoint] weighting_matrix = {_fmt(wmatrix_val)}')
 
     # Freeze all parameters — backbone is always frozen during memorability training
     for p in model.parameters():
@@ -221,9 +264,19 @@ def extract_meg_embeddings_for_fold(
 
     splits = {'train': train_csv, 'val': val_csv, 'test': test_csv}
 
+    # Snapshot existing filenames with a single directory listing to avoid
+    # repeated os.stat() calls on network drives (WinError 4 / too many open files).
+    existing_files: set[str] = (
+        {p.name for p in out_dir_path.iterdir() if p.is_file()}
+        if out_dir_path.exists() else set()
+    )
+
+    def _exists(tp_ms: int, split: str) -> bool:
+        return _out_path(tp_ms, split).name in existing_files
+
     # Skip entire fold if all output files already exist
     all_exist = all(
-        _out_path(tp, split).exists()
+        _exists(tp, split)
         for tp in sampled_tps
         for split in splits
     )
@@ -238,7 +291,7 @@ def extract_meg_embeddings_for_fold(
     model.to(device)
 
     for split_name, csv_path in splits.items():
-        if all(_out_path(tp, split_name).exists() for tp in sampled_tps):
+        if all(_exists(tp, split_name) for tp in sampled_tps):
             print(f'[Skip] All timepoints for fold {fold} / {split_name} exist.')
             continue
 
@@ -281,7 +334,7 @@ def extract_meg_embeddings_for_fold(
 
         for t_idx, tp_ms in enumerate(sampled_tps):
             out_path = _out_path(tp_ms, split_name)
-            if out_path.exists():
+            if _exists(tp_ms, split_name):
                 print(f'  [Skip] {out_path.name} already exists.')
                 continue
 
@@ -344,10 +397,10 @@ def main() -> None:
     )
     parser.add_argument(
         '--out_dir',
-        default=None,
+        default=os.environ.get('MEG_OUT_DIR', None),
         help='Output directory for .pt embedding files.  Defaults to '
-             './Data/lamem/meg_embeddings/ or '
-             './Data/combined_lamem_memcat/meg_embeddings/.',
+             'Z:/multimodal_brain_inspired/marren/MEGMem/lamem/ or '
+             'Z:/multimodal_brain_inspired/marren/MEGMem/combined_lamem_memcat/.',
     )
     parser.add_argument(
         '--extract_step',
@@ -416,7 +469,7 @@ def main() -> None:
         test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
         img_root  = args.img_root
         memcat_meta_csv = None
-        out_dir = args.out_dir or './Data/lamem/meg_embeddings/'
+        out_dir = args.out_dir or 'Z:/multimodal_brain_inspired/marren/MEGMem/lamem/'
     else:  # combined_lamem_memcat
         train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
         val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
@@ -426,7 +479,7 @@ def main() -> None:
             'memcat': args.memcat_img_root,
         }
         memcat_meta_csv = args.memcat_meta_csv
-        out_dir = args.out_dir or './Data/combined_lamem_memcat/meg_embeddings/'
+        out_dir = args.out_dir or 'Z:/multimodal_brain_inspired/marren/MEGMem/combined_lamem_memcat/'
 
     n_tps = len(range(EXTRACT_START, EXTRACT_END + 1, args.extract_step))
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')

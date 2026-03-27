@@ -100,7 +100,7 @@ BASE_CONFIG = {
     # Set model_type to control which backbone is used for the sweep:
     #   'clip_hba_mem'    — HBA-tuned CLIP backbone (requires backbone_checkpoint)
     #   'clip_frozen_mlp' — vanilla openai/clip-vit-large-patch14
-    'model_type': 'clip_frozen_mlp',
+    'model_type': 'clip_hba_mem',
     'training_data': TRAINING_DATA,
 
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
@@ -116,7 +116,7 @@ BASE_CONFIG = {
     'rank':                32,
 
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 0,
+    'cuda': 1,
 
     # Fixed training settings for the sweep
     'epochs':                  300,
@@ -257,6 +257,7 @@ def _objective(
                 'batch_size':      batch_size,
                 'log_path':        os.path.join(fold_dir, 'log.txt'),
                 'checkpoint_path': os.path.join(fold_dir, 'checkpoint'),
+                'save_checkpoint': False,
             }
             fold_mse, fold_rho = run_mem_training(fold_config)
             fold_mses.append(fold_mse)
