@@ -118,7 +118,7 @@ def _build_meg_model(
     Returns:
         CLIPHBA model in eval mode with all parameters frozen.
     """
-    classnames = [x[0] for x in classnames66]  # matches inference_meg_group_pipeline.py
+    classnames = classnames66  # full semantic dimension strings (matches training pipeline)
 
     model = CLIPHBA(
         classnames=classnames,
