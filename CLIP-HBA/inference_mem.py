@@ -53,7 +53,7 @@ from functions.train_mem_pipeline import (
 from functions.train_behavior_things_pipeline import seed_everything
 
 
-def build_standardised_csv(dataset, output_path, **kwargs):
+def build_standardised_csv(dataset, output_path, data_dir='./Data', **kwargs):
     """Create a temporary CSV with columns (image_path, score) for any dataset.
 
     Returns the path to the CSV and the img_root to use with MemDataset.
@@ -61,13 +61,13 @@ def build_standardised_csv(dataset, output_path, **kwargs):
     if dataset == 'lamem':
         fold = kwargs['fold']
         if fold == 'all_lamem':
-            csv_path = './Data/lamem/all_lamem.csv'
+            csv_path = f'{data_dir}/lamem/all_lamem.csv'
         else:
-            csv_path = f'./Data/lamem/lamem_test_{fold}.csv'
-        return csv_path, './Data/lamem/images/'
+            csv_path = f'{data_dir}/lamem/lamem_test_{fold}.csv'
+        return csv_path, f'{data_dir}/lamem/images/'
 
     elif dataset == 'things':
-        things_csv = './Data/THINGS_Memorability_Scores.csv'
+        things_csv = f'{data_dir}/THINGS_Memorability_Scores.csv'
         things_img_dir = kwargs['things_img_dir']
         df = pd.read_csv(things_csv)
         df_out = pd.DataFrame({
@@ -79,8 +79,8 @@ def build_standardised_csv(dataset, output_path, **kwargs):
         return output_path, things_img_dir
 
     elif dataset == 'memcat':
-        memcat_csv = './Data/memcat/memcat_image_data.csv'
-        memcat_img_root = './Data/memcat/memcat_images'
+        memcat_csv = f'{data_dir}/memcat/memcat_image_data.csv'
+        memcat_img_root = f'{data_dir}/memcat/memcat_images'
         df = pd.read_csv(memcat_csv)
         # Images are at memcat_images/<category>/<subcategory>/<image_file>
         df_out = pd.DataFrame({
@@ -156,8 +156,8 @@ def run_inference(config):
         tmp_csv = os.path.join(out_dir, f'_tmp_{dataset_label}{fold_suffix}.csv')
 
         csv_path, img_root = build_standardised_csv(
-            dataset_label, tmp_csv, fold=fold,
-            things_img_dir=config.get('things_img_dir', ''))
+            dataset_label, tmp_csv, data_dir=config.get('data_dir', './Data'),
+            fold=fold, things_img_dir=config.get('things_img_dir', ''))
 
         ds = _build_dataset(model_type, csv_path, img_root)
         print(f'\n[{dataset_label.upper()}{fold_suffix}] {len(ds)} images')
@@ -252,9 +252,14 @@ def run_inference(config):
 
 
 def main():
+    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+
     parser = argparse.ArgumentParser(
         description='Run memorability inference with a trained memorability model.')
 
+    parser.add_argument('--data_dir', default=_data_dir_default,
+                        help='Root data directory (replaces the ./Data prefix). '
+                             'Also settable via DATA_DIR env var.')
     parser.add_argument('--dataset', required=True,
                         choices=['lamem', 'things', 'memcat'],
                         help='Dataset to run inference on.')
@@ -263,7 +268,7 @@ def main():
                              '(all 58,741 images from all_lamem.csv). '
                              '"all_lamem" requires an explicit --checkpoint path. '
                              'Ignored for non-LaMem datasets.')
-    parser.add_argument('--things_img_dir', default='./Data/Things1854',
+    parser.add_argument('--things_img_dir', default=f'{_data_dir_default}/Things1854',
                         help='Directory containing THINGS images (for --dataset things).')
 
     parser.add_argument('--model_type', default='clip_hba_mem',
@@ -275,7 +280,7 @@ def main():
 
     # clip_hba_mem-only backbone args (ignored for clip_frozen_mlp / perceptclip)
     parser.add_argument('--backbone_checkpoint',
-                        default='./Data/lamem/epoch97_dora_params.pth',
+                        default=f'{_data_dir_default}/lamem/epoch97_dora_params.pth',
                         help='Path to frozen CLIP-HBA backbone weights '
                              '(clip_hba_mem only; ignored for other model types).')
     parser.add_argument('--backbone', default='ViT-L/14',
@@ -314,6 +319,7 @@ def main():
     config = {
         'dataset': args.dataset,
         'folds': folds,
+        'data_dir': args.data_dir,
         'things_img_dir': args.things_img_dir,
         'model_type': args.model_type,
         'checkpoint': args.checkpoint,

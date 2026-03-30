@@ -58,34 +58,35 @@ from functions.train_mem_pipeline import run_mem_training
 # Dataset configuration — mirrors train_mem.py; set via TRAINING_DATA env var
 # ---------------------------------------------------------------------------
 TRAINING_DATA: str = os.environ.get('TRAINING_DATA', 'combined_lamem_memcat')  # 'lamem' | 'combined_lamem_memcat'
+_DATA_DIR: str = os.environ.get('DATA_DIR', './Data')
 
 if TRAINING_DATA == 'lamem':
     N_FOLDS: int = 5
-    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
-    _EMBEDDINGS_DIR: 'str | None' = './Data/lamem/embeddings/'
+    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', f'{_DATA_DIR}/lamem/images/')
+    _EMBEDDINGS_DIR: 'str | None' = f'{_DATA_DIR}/lamem/embeddings/'
     _MEMCAT_META_CSV: 'str | None' = None
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'./Data/lamem/lamem_{split}_{fold}.csv'
+        return f'{_DATA_DIR}/lamem/lamem_{split}_{fold}.csv'
 
 elif TRAINING_DATA == 'combined_lamem_memcat':
     N_FOLDS: int = 10
     _IMG_ROOT: 'str | dict' = {
-        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
-        'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{_DATA_DIR}/lamem/images/'),
+        'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{_DATA_DIR}/memcat/images/'),
     }
     _EMBEDDINGS_DIR: 'str | None' = (
         os.environ.get('EMBEDDINGS_DIR') or
-        ('./Data/combined_lamem_memcat/embeddings/'
-         if os.path.isdir('./Data/combined_lamem_memcat/embeddings/')
+        (f'{_DATA_DIR}/combined_lamem_memcat/embeddings/'
+         if os.path.isdir(f'{_DATA_DIR}/combined_lamem_memcat/embeddings/')
          else None)
     )
     _MEMCAT_META_CSV: 'str | None' = os.environ.get(
-        'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
+        'MEMCAT_META_CSV', f'{_DATA_DIR}/memcat/memcat_image_data.csv'
     )
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'./Data/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
+        return f'{_DATA_DIR}/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
 
 else:
     raise ValueError(
@@ -109,7 +110,7 @@ BASE_CONFIG = {
     'memcat_meta_csv': _MEMCAT_META_CSV,
 
     # Backbone (frozen — these must match the checkpoint's DoRA config)
-    'backbone_checkpoint': './Data/lamem/epoch97_dora_params.pth',
+    'backbone_checkpoint': f'{_DATA_DIR}/lamem/epoch97_dora_params.pth',
     'backbone':            'ViT-L/14',
     'vision_layers':       2,
     'transformer_layers':  1,
@@ -515,6 +516,11 @@ if __name__ == '__main__':
         '--resume', metavar='DB', default=None,
         help='Path to an existing optuna_study.db to resume a previous search. '
              'All completed trials are loaded automatically; no re-running.',
+    )
+    parser.add_argument(
+        '--data_dir', default=None,
+        help='Root data directory. NOTE: set DATA_DIR env var before import '
+             'for this to affect module-level path defaults.',
     )
     args = parser.parse_args()
     run_sweep(n_trials=args.n_trials, resume_db=args.resume)

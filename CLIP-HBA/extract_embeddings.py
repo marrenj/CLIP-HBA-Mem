@@ -243,9 +243,18 @@ def extract_embeddings_for_fold(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    # Resolve data_dir early so sub-path defaults can reference it.
+    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+
     parser = argparse.ArgumentParser(
         description='Pre-extract frozen backbone embeddings for memorability MLP training.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        '--data_dir',
+        default=_data_dir_default,
+        help='Root data directory (replaces the ./Data prefix). '
+             'Also settable via DATA_DIR env var.',
     )
     parser.add_argument(
         '--training_data',
@@ -267,17 +276,17 @@ def main() -> None:
     )
     parser.add_argument(
         '--img_root',
-        default=os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/'),
+        default=os.environ.get('LAMEM_IMG_ROOT', f'{_data_dir_default}/lamem/images/'),
         help='LaMem images root directory.',
     )
     parser.add_argument(
         '--memcat_img_root',
-        default=os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+        default=os.environ.get('MEMCAT_IMG_ROOT', f'{_data_dir_default}/memcat/images/'),
         help='MemCat images root directory (only used for combined_lamem_memcat).',
     )
     parser.add_argument(
         '--memcat_meta_csv',
-        default=os.environ.get('MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'),
+        default=os.environ.get('MEMCAT_META_CSV', f'{_data_dir_default}/memcat/memcat_image_data.csv'),
         help='Path to memcat_image_data.csv with category/subcategory columns '
              '(only used for combined_lamem_memcat).',
     )
@@ -285,12 +294,12 @@ def main() -> None:
         '--out_dir',
         default=None,
         help='Directory where .pt embedding files are written.  '
-             'Defaults to ./Data/lamem/embeddings/ for lamem and '
-             './Data/combined_lamem_memcat/embeddings/ for combined_lamem_memcat.',
+             'Defaults to <data_dir>/lamem/embeddings/ for lamem and '
+             '<data_dir>/combined_lamem_memcat/embeddings/ for combined_lamem_memcat.',
     )
     parser.add_argument(
         '--backbone_checkpoint',
-        default='./Data/lamem/epoch97_dora_params.pth',
+        default=f'{_data_dir_default}/lamem/epoch97_dora_params.pth',
         help='CLIP-HBA checkpoint path (only used for clip_hba_mem).',
     )
     parser.add_argument(
@@ -318,6 +327,7 @@ def main() -> None:
         help='Random seed (affects reproducibility of any stochastic ops).',
     )
     args = parser.parse_args()
+    data_dir = args.data_dir
 
     seed_everything(args.seed)
 
@@ -326,22 +336,22 @@ def main() -> None:
     fold = args.fold
 
     if args.training_data == 'lamem':
-        train_csv = f'./Data/lamem/lamem_train_{fold}.csv'
-        val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
-        test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
+        train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
+        val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
+        test_csv  = f'{data_dir}/lamem/lamem_test_{fold}.csv'
         img_root      = args.img_root
         memcat_meta_csv = None
-        out_dir = args.out_dir or './Data/lamem/embeddings/'
+        out_dir = args.out_dir or f'{data_dir}/lamem/embeddings/'
     else:  # combined_lamem_memcat
-        train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-        val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-        test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
+        val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
+        test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
         img_root = {
             'lamem':  args.img_root,
             'memcat': args.memcat_img_root,
         }
         memcat_meta_csv = args.memcat_meta_csv
-        out_dir = args.out_dir or './Data/combined_lamem_memcat/embeddings/'
+        out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/embeddings/'
 
     extract_embeddings_for_fold(
         model_type=args.model_type,
