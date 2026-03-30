@@ -96,9 +96,15 @@ def main() -> None:
                         default=int(os.environ.get('RANDOM_SEED', 1)))
     # --- Paths ---
     parser.add_argument(
+        '--data_dir',
+        default=os.environ.get('DATA_DIR', './Data'),
+        help='Root data directory (replaces the ./Data prefix). '
+             'Also settable via DATA_DIR env var.',
+    )
+    parser.add_argument(
         '--embeddings_dir', default=None,
         help='Directory containing precomputed MEG .pt embedding files.  '
-             'Defaults to ./Data/{training_data}/meg_embeddings/.',
+             'Defaults to <data_dir>/{training_data}/meg_embeddings/.',
     )
     parser.add_argument(
         '--checkpoint_path', default=None,
@@ -120,27 +126,28 @@ def main() -> None:
 
     fold = args.fold
     training_data = args.training_data
+    data_dir = args.data_dir
 
     # --- Resolve paths ---
     if training_data == 'lamem':
-        train_csv = f'./Data/lamem/lamem_train_{fold}.csv'
-        val_csv   = f'./Data/lamem/lamem_val_{fold}.csv'
-        test_csv  = f'./Data/lamem/lamem_test_{fold}.csv'
-        img_root  = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
+        train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
+        val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
+        test_csv  = f'{data_dir}/lamem/lamem_test_{fold}.csv'
+        img_root  = os.environ.get('LAMEM_IMG_ROOT', f'{data_dir}/lamem/images/')
         memcat_meta_csv = None
-        default_emb_dir = './Data/lamem/meg_embeddings/'
+        default_emb_dir = f'{data_dir}/lamem/meg_embeddings/'
     else:  # combined_lamem_memcat
-        train_csv = f'./Data/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-        val_csv   = f'./Data/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-        test_csv  = f'./Data/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
+        val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
+        test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
         img_root  = {
-            'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
-            'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+            'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{data_dir}/lamem/images/'),
+            'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{data_dir}/memcat/images/'),
         }
         memcat_meta_csv = os.environ.get(
-            'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
+            'MEMCAT_META_CSV', f'{data_dir}/memcat/memcat_image_data.csv'
         )
-        default_emb_dir = './Data/combined_lamem_memcat/meg_embeddings/'
+        default_emb_dir = f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
     embeddings_dir   = args.embeddings_dir or default_emb_dir
     checkpoint_path  = args.checkpoint_path or f'./models/clip_hba_meg_mem/tp{tp}'

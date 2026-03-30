@@ -265,9 +265,17 @@ def run_meg_inference(config: dict) -> None:
 
 
 def main() -> None:
+    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+
     parser = argparse.ArgumentParser(
         description='Inference with trained CLIP-HBA-MEG memorability MLP heads.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        '--data_dir',
+        default=_data_dir_default,
+        help='Root data directory (replaces the ./Data prefix). '
+             'Also settable via DATA_DIR env var.',
     )
     parser.add_argument(
         '--timepoint_ms',
@@ -289,7 +297,7 @@ def main() -> None:
         '--embeddings_dir',
         default=None,
         help='Directory with precomputed MEG .pt embedding files.  '
-             'Defaults to ./Data/{training_data}/meg_embeddings/.',
+             'Defaults to <data_dir>/{training_data}/meg_embeddings/.',
     )
     parser.add_argument(
         '--checkpoint_dir',
@@ -314,12 +322,13 @@ def main() -> None:
 
     # Resolve training_data-specific defaults
     training_data = args.training_data
+    data_dir = args.data_dir
     if training_data == 'lamem':
         n_folds = 5
-        default_emb_dir = './Data/lamem/meg_embeddings/'
+        default_emb_dir = f'{data_dir}/lamem/meg_embeddings/'
     else:
         n_folds = 10
-        default_emb_dir = './Data/combined_lamem_memcat/meg_embeddings/'
+        default_emb_dir = f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
     embeddings_dir = args.embeddings_dir or default_emb_dir
     checkpoint_dir = args.checkpoint_dir or './models/clip_hba_meg_mem/'

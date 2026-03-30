@@ -32,6 +32,8 @@ import torch.nn as nn
 
 from functions.train_mem_pipeline import run_mem_training
 
+_DATA_DIR: str = os.environ.get('DATA_DIR', './Data')
+
 # ---------------------------------------------------------------------------
 # Fixed configuration -- edit paths and device to match your environment
 # ---------------------------------------------------------------------------
@@ -40,10 +42,10 @@ BASE_CONFIG = {
 
     # Fold used for the sweep; run the winning config on all 5 folds afterward
     'fold':      1,
-    'train_csv': './Data/lamem/lamem_train_1.csv',
-    'val_csv':   './Data/lamem/lamem_val_1.csv',
-    'test_csv':  './Data/lamem/lamem_test_1.csv',
-    'img_root':  './Data/lamem/images/',
+    'train_csv': f'{_DATA_DIR}/lamem/lamem_train_1.csv',
+    'val_csv':   f'{_DATA_DIR}/lamem/lamem_val_1.csv',
+    'test_csv':  f'{_DATA_DIR}/lamem/lamem_test_1.csv',
+    'img_root':  f'{_DATA_DIR}/lamem/images/',
 
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
     'cuda': 1,

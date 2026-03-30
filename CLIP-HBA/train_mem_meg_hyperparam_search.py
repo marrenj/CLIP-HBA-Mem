@@ -62,32 +62,33 @@ from functions.train_mem_pipeline import run_mem_training
 # Dataset configuration
 # ---------------------------------------------------------------------------
 TRAINING_DATA: str = os.environ.get('TRAINING_DATA', 'combined_lamem_memcat')
+_DATA_DIR: str = os.environ.get('DATA_DIR', './Data')
 
 if TRAINING_DATA == 'lamem':
     N_FOLDS: int = 5
-    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', './Data/lamem/images/')
-    _EMBEDDINGS_DIR_BASE: str = './Data/lamem/meg_embeddings/'
+    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', f'{_DATA_DIR}/lamem/images/')
+    _EMBEDDINGS_DIR_BASE: str = f'{_DATA_DIR}/lamem/meg_embeddings/'
     _MEMCAT_META_CSV: 'str | None' = None
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'./Data/lamem/lamem_{split}_{fold}.csv'
+        return f'{_DATA_DIR}/lamem/lamem_{split}_{fold}.csv'
 
 elif TRAINING_DATA == 'combined_lamem_memcat':
     N_FOLDS: int = 10
     _IMG_ROOT: 'str | dict' = {
-        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  './Data/lamem/images/'),
-        'memcat': os.environ.get('MEMCAT_IMG_ROOT', './Data/memcat/images/'),
+        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{_DATA_DIR}/lamem/images/'),
+        'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{_DATA_DIR}/memcat/images/'),
     }
     _EMBEDDINGS_DIR_BASE: str = (
         os.environ.get('MEG_EMBEDDINGS_DIR') or
-        './Data/combined_lamem_memcat/meg_embeddings/'
+        f'{_DATA_DIR}/combined_lamem_memcat/meg_embeddings/'
     )
     _MEMCAT_META_CSV: 'str | None' = os.environ.get(
-        'MEMCAT_META_CSV', './Data/memcat/memcat_image_data.csv'
+        'MEMCAT_META_CSV', f'{_DATA_DIR}/memcat/memcat_image_data.csv'
     )
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'./Data/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
+        return f'{_DATA_DIR}/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
 
 else:
     raise ValueError(
@@ -498,6 +499,11 @@ if __name__ == '__main__':
         metavar='DB',
         default=None,
         help='Path to an existing optuna_study.db to resume a previous search.',
+    )
+    parser.add_argument(
+        '--data_dir', default=None,
+        help='Root data directory. NOTE: set DATA_DIR env var before import '
+             'for this to affect module-level path defaults.',
     )
     args = parser.parse_args()
     run_meg_sweep(
