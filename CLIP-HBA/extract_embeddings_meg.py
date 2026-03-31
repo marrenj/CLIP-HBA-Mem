@@ -96,6 +96,8 @@ def _build_meg_model(
     vision_layers: int,
     transformer_layers: int,
     rank: int,
+    extract_start: int = EXTRACT_START,
+    extract_end: int = EXTRACT_END,
     extract_step: int = EXTRACT_STEP,
     train_window_size: int = TRAIN_WINDOW_SIZE,
 ) -> CLIPHBA:
@@ -143,9 +145,9 @@ def _build_meg_model(
         ms_start=MEG_MS_START,
         ms_step=MEG_MS_STEP,
         ms_end=MEG_MS_END,
-        train_start=EXTRACT_START,
+        train_start=extract_start,
         train_step=extract_step,
-        train_end=EXTRACT_END,
+        train_end=extract_end,
         train_window_size=train_window_size,
         beta=beta,
         noise_level=noise_level,
@@ -263,7 +265,7 @@ def extract_meg_embeddings_for_fold(
     out_dir_path = pathlib.Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    sampled_tps  = list(range(EXTRACT_START, EXTRACT_END + 1, extract_step))
+    sampled_tps  = list(range(extract_start, extract_end + 1, extract_step))
     n_timepoints = len(sampled_tps)
 
     def _out_path(tp_ms: int, split: str) -> pathlib.Path:
@@ -541,8 +543,8 @@ def main() -> None:
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')
-    print(f'  Timepoints:     {EXTRACT_START} to {EXTRACT_END} ms, '
-          f'step {args.extract_step} ms  ({n_tps} total)')
+    print(f'  Timepoints:     {eff_start} to {eff_end} ms, '
+          f'step {eff_step} ms  ({n_tps} total)')
     print(f'  Window:         none (exact per-timepoint parameters)')
     print(f'  Output dir:     {out_dir}')
     print(f'  Device:         {device}')
