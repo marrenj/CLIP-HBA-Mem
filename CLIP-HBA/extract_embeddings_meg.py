@@ -228,6 +228,7 @@ def extract_meg_embeddings_for_fold(
     extract_step: int = EXTRACT_STEP,
     train_window_size: int = TRAIN_WINDOW_SIZE,
     memcat_meta_csv: 'str | None' = None,
+    timepoints: 'list[int] | None' = None,
 ) -> None:
     """Extract and save 66-dim MEG embeddings for every timepoint and split.
 
@@ -252,11 +253,17 @@ def extract_meg_embeddings_for_fold(
         extract_step:       Stride in ms between extracted timepoints (default 5).
         train_window_size:  Temporal averaging half-width in ms (default 0 = exact).
         memcat_meta_csv:    Path to memcat_image_data.csv (combined dataset only).
+        timepoints:         Explicit list of timepoints in ms to extract.  When
+                            provided, ``extract_step`` is ignored.
     """
     out_dir_path = pathlib.Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    sampled_tps  = list(range(EXTRACT_START, EXTRACT_END + 1, extract_step))
+    sampled_tps = (
+        sorted(timepoints)
+        if timepoints is not None
+        else list(range(EXTRACT_START, EXTRACT_END + 1, extract_step))
+    )
     n_timepoints = len(sampled_tps)
 
     def _out_path(tp_ms: int, split: str) -> pathlib.Path:
@@ -417,7 +424,17 @@ def main() -> None:
         default=int(os.environ.get('EXTRACT_STEP', EXTRACT_STEP)),
         help='Stride in ms between extracted timepoints.  '
              f'Default {EXTRACT_STEP} ms = full model resolution (281 timepoints).  '
-             'Use 100 for a coarser 15-timepoint grid.',
+             'Use 100 for a coarser 15-timepoint grid.  '
+             'Ignored when --timepoints is provided.',
+    )
+    parser.add_argument(
+        '--timepoints',
+        type=int,
+        nargs='+',
+        default=None,
+        metavar='MS',
+        help='Explicit list of timepoints in ms to extract (e.g. --timepoints 50 150 250 350).  '
+             'When provided, --extract_step is ignored.',
     )
     parser.add_argument(
         '--vision_layers',
@@ -491,12 +508,16 @@ def main() -> None:
         memcat_meta_csv = args.memcat_meta_csv
         out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
-    n_tps = len(range(EXTRACT_START, EXTRACT_END + 1, args.extract_step))
+    if args.timepoints is not None:
+        tp_desc = f'explicit: {args.timepoints}  ({len(args.timepoints)} total)'
+    else:
+        n_tps = len(range(EXTRACT_START, EXTRACT_END + 1, args.extract_step))
+        tp_desc = (f'{EXTRACT_START} to {EXTRACT_END} ms, '
+                   f'step {args.extract_step} ms  ({n_tps} total)')
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')
-    print(f'  Timepoints:     {EXTRACT_START} to {EXTRACT_END} ms, '
-          f'step {args.extract_step} ms  ({n_tps} total)')
+    print(f'  Timepoints:     {tp_desc}')
     print(f'  Window:         none (exact per-timepoint parameters)')
     print(f'  Output dir:     {out_dir}')
     print(f'  Device:         {device}')
@@ -519,6 +540,7 @@ def main() -> None:
         extract_step=args.extract_step,
         train_window_size=TRAIN_WINDOW_SIZE,
         memcat_meta_csv=memcat_meta_csv,
+        timepoints=args.timepoints,
     )
 
 
