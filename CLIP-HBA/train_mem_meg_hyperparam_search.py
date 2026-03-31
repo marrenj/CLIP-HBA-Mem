@@ -96,6 +96,10 @@ else:
         f"Choose 'lamem' or 'combined_lamem_memcat'."
     )
 
+# Allow overriding the number of folds via env var (e.g. N_FOLDS=5 with combined_lamem_memcat)
+if 'N_FOLDS' in os.environ:
+    N_FOLDS = int(os.environ['N_FOLDS'])
+
 # ---------------------------------------------------------------------------
 # Hyperparameter search space
 #
@@ -226,7 +230,7 @@ def _objective(
                 'batch_size':    batch_size,
                 'epochs':        300,
                 'early_stopping_patience': 20,
-                'train_fraction': 1.0,
+                'train_fraction': 0.5,
                 'criterion':     nn.MSELoss(),
                 # Logging
                 'log_path':        os.path.join(fold_dir, 'log.txt'),

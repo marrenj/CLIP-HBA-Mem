@@ -1,0 +1,11 @@
+
+[Data] Train: 50993 samples | Val: 12748 samples | Test: 5000 samples
+[Data] Subsampled train set: 25496/50993 (50%)
+
+[Data] sample feature tensor shape: (66,)
+
+[Data] sample score: 0.8505
+
+[Data] Score range: min 0.2059 to max 1.0000
+
+[Model] Probe forward pass...

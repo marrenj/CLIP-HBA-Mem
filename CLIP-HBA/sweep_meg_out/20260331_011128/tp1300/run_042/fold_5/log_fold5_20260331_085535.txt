@@ -1,0 +1,322 @@
+
+[Data] Train: 50993 samples | Val: 12748 samples | Test: 5000 samples
+[Data] Subsampled train set: 25496/50993 (50%)
+
+[Data] sample feature tensor shape: (66,)
+
+[Data] sample score: 0.6217
+
+[Data] Score range: min 0.2059 to max 1.0000
+
+[Model] Probe forward pass...
+[Model] MLPOnlyHead output shape: (2, 1)  (squeezed: (2,))
+[Model] Output range: [-0.1394, 0.0192]
+
+Model Configuration:
+--------------------
+  model_type: clip_hba_meg_mem_tp1300
+  input_dim: 66
+  training_data: combined_lamem_memcat
+  fold: 5
+  train_csv: Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/combined_lamem_memcat/lamem_memcat_train_split_05.csv
+  val_csv: Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/combined_lamem_memcat/lamem_memcat_val_split_05.csv
+  test_csv: Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/combined_lamem_memcat/lamem_memcat_test_split_05.csv
+  img_root: {'lamem': 'Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/lamem/images/', 'memcat': 'Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/memcat/images/'}
+  embeddings_dir: Z:/multimodal_brain_inspired/marren/MEGMem/combined_lamem_memcat
+  memcat_meta_csv: Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/Data/memcat/memcat_image_data.csv
+  hidden_dims: (16,)
+  dropout_rate: 0.5205631993474312
+  lr: 0.00013287765355909036
+  weight_decay: 0.021523862310674328
+  batch_size: 256
+  epochs: 300
+  early_stopping_patience: 20
+  train_fraction: 0.5
+  criterion: MSELoss()
+  log_path: ./sweep_meg_out/20260331_011128\tp1300\run_042\fold_5\log.txt
+  checkpoint_path: ./sweep_meg_out/20260331_011128\tp1300\run_042\fold_5\checkpoint
+  random_seed: 42
+  cuda: 1
+
+Trainable parameters: 1,089
+
+****************************************
+Initial evaluation
+Val MSE: 0.8558  |  Spearman r: 0.0782  |  Pred std: 0.0871
+****************************************
+
+Epoch 1: Train MSE: 0.5079  |  Val MSE: 0.1079  |  Spearman r: 0.0710  |  Pred std: 0.1924
+  -> Checkpoint saved (epoch 1)
+Epochs without improvement: 0
+Epoch 2: Train MSE: 0.2149  |  Val MSE: 0.0729  |  Spearman r: 0.0473  |  Pred std: 0.1851
+  -> Checkpoint saved (epoch 2)
+Epochs without improvement: 0
+Epoch 3: Train MSE: 0.1706  |  Val MSE: 0.0559  |  Spearman r: 0.0819  |  Pred std: 0.1680
+  -> Checkpoint saved (epoch 3)
+Epochs without improvement: 0
+Epoch 4: Train MSE: 0.1463  |  Val MSE: 0.0491  |  Spearman r: 0.1189  |  Pred std: 0.1512
+  -> Checkpoint saved (epoch 4)
+Epochs without improvement: 0
+Epoch 5: Train MSE: 0.1375  |  Val MSE: 0.0468  |  Spearman r: 0.1554  |  Pred std: 0.1388
+  -> Checkpoint saved (epoch 5)
+Epochs without improvement: 0
+Epoch 6: Train MSE: 0.1295  |  Val MSE: 0.0424  |  Spearman r: 0.1838  |  Pred std: 0.1310
+  -> Checkpoint saved (epoch 6)
+Epochs without improvement: 0
+Epoch 7: Train MSE: 0.1234  |  Val MSE: 0.0390  |  Spearman r: 0.2050  |  Pred std: 0.1249
+  -> Checkpoint saved (epoch 7)
+Epochs without improvement: 0
+Epoch 8: Train MSE: 0.1193  |  Val MSE: 0.0350  |  Spearman r: 0.2261  |  Pred std: 0.1208
+  -> Checkpoint saved (epoch 8)
+Epochs without improvement: 0
+Epoch 9: Train MSE: 0.1158  |  Val MSE: 0.0339  |  Spearman r: 0.2434  |  Pred std: 0.1158
+  -> Checkpoint saved (epoch 9)
+Epochs without improvement: 0
+Epoch 10: Train MSE: 0.1113  |  Val MSE: 0.0314  |  Spearman r: 0.2565  |  Pred std: 0.1121
+  -> Checkpoint saved (epoch 10)
+Epochs without improvement: 0
+Epoch 11: Train MSE: 0.1111  |  Val MSE: 0.0325  |  Spearman r: 0.2721  |  Pred std: 0.1072
+Epochs without improvement: 1
+Epoch 12: Train MSE: 0.1057  |  Val MSE: 0.0315  |  Spearman r: 0.2851  |  Pred std: 0.1038
+Epochs without improvement: 2
+Epoch 13: Train MSE: 0.1030  |  Val MSE: 0.0289  |  Spearman r: 0.2919  |  Pred std: 0.1015
+  -> Checkpoint saved (epoch 13)
+Epochs without improvement: 0
+Epoch 14: Train MSE: 0.0994  |  Val MSE: 0.0259  |  Spearman r: 0.3004  |  Pred std: 0.1002
+  -> Checkpoint saved (epoch 14)
+Epochs without improvement: 0
+Epoch 15: Train MSE: 0.0979  |  Val MSE: 0.0263  |  Spearman r: 0.3124  |  Pred std: 0.0971
+Epochs without improvement: 1
+Epoch 16: Train MSE: 0.0962  |  Val MSE: 0.0266  |  Spearman r: 0.3245  |  Pred std: 0.0946
+Epochs without improvement: 2
+Epoch 17: Train MSE: 0.0930  |  Val MSE: 0.0261  |  Spearman r: 0.3306  |  Pred std: 0.0921
+Epochs without improvement: 3
+Epoch 18: Train MSE: 0.0886  |  Val MSE: 0.0250  |  Spearman r: 0.3393  |  Pred std: 0.0909
+  -> Checkpoint saved (epoch 18)
+Epochs without improvement: 0
+Epoch 19: Train MSE: 0.0881  |  Val MSE: 0.0238  |  Spearman r: 0.3479  |  Pred std: 0.0897
+  -> Checkpoint saved (epoch 19)
+Epochs without improvement: 0
+Epoch 20: Train MSE: 0.0848  |  Val MSE: 0.0244  |  Spearman r: 0.3580  |  Pred std: 0.0879
+Epochs without improvement: 1
+Epoch 21: Train MSE: 0.0828  |  Val MSE: 0.0239  |  Spearman r: 0.3661  |  Pred std: 0.0867
+Epochs without improvement: 2
+Epoch 22: Train MSE: 0.0814  |  Val MSE: 0.0236  |  Spearman r: 0.3753  |  Pred std: 0.0856
+  -> Checkpoint saved (epoch 22)
+Epochs without improvement: 0
+Epoch 23: Train MSE: 0.0794  |  Val MSE: 0.0240  |  Spearman r: 0.3816  |  Pred std: 0.0838
+Epochs without improvement: 1
+Epoch 24: Train MSE: 0.0772  |  Val MSE: 0.0208  |  Spearman r: 0.3843  |  Pred std: 0.0841
+  -> Checkpoint saved (epoch 24)
+Epochs without improvement: 0
+Epoch 25: Train MSE: 0.0756  |  Val MSE: 0.0214  |  Spearman r: 0.3922  |  Pred std: 0.0825
+Epochs without improvement: 1
+Epoch 26: Train MSE: 0.0737  |  Val MSE: 0.0201  |  Spearman r: 0.3926  |  Pred std: 0.0812
+  -> Checkpoint saved (epoch 26)
+Epochs without improvement: 0
+Epoch 27: Train MSE: 0.0705  |  Val MSE: 0.0202  |  Spearman r: 0.3978  |  Pred std: 0.0798
+Epochs without improvement: 1
+Epoch 28: Train MSE: 0.0688  |  Val MSE: 0.0196  |  Spearman r: 0.4031  |  Pred std: 0.0789
+  -> Checkpoint saved (epoch 28)
+Epochs without improvement: 0
+Epoch 29: Train MSE: 0.0667  |  Val MSE: 0.0189  |  Spearman r: 0.4094  |  Pred std: 0.0784
+  -> Checkpoint saved (epoch 29)
+Epochs without improvement: 0
+Epoch 30: Train MSE: 0.0650  |  Val MSE: 0.0189  |  Spearman r: 0.4115  |  Pred std: 0.0767
+Epochs without improvement: 1
+Epoch 31: Train MSE: 0.0631  |  Val MSE: 0.0184  |  Spearman r: 0.4141  |  Pred std: 0.0755
+  -> Checkpoint saved (epoch 31)
+Epochs without improvement: 0
+Epoch 32: Train MSE: 0.0611  |  Val MSE: 0.0172  |  Spearman r: 0.4226  |  Pred std: 0.0760
+  -> Checkpoint saved (epoch 32)
+Epochs without improvement: 0
+Epoch 33: Train MSE: 0.0597  |  Val MSE: 0.0172  |  Spearman r: 0.4290  |  Pred std: 0.0753
+  -> Checkpoint saved (epoch 33)
+Epochs without improvement: 0
+Epoch 34: Train MSE: 0.0571  |  Val MSE: 0.0176  |  Spearman r: 0.4354  |  Pred std: 0.0741
+Epochs without improvement: 1
+Epoch 35: Train MSE: 0.0560  |  Val MSE: 0.0176  |  Spearman r: 0.4372  |  Pred std: 0.0724
+Epochs without improvement: 2
+Epoch 36: Train MSE: 0.0539  |  Val MSE: 0.0171  |  Spearman r: 0.4424  |  Pred std: 0.0721
+  -> Checkpoint saved (epoch 36)
+Epochs without improvement: 0
+Epoch 37: Train MSE: 0.0528  |  Val MSE: 0.0178  |  Spearman r: 0.4525  |  Pred std: 0.0716
+Epochs without improvement: 1
+Epoch 38: Train MSE: 0.0509  |  Val MSE: 0.0160  |  Spearman r: 0.4543  |  Pred std: 0.0718
+  -> Checkpoint saved (epoch 38)
+Epochs without improvement: 0
+Epoch 39: Train MSE: 0.0498  |  Val MSE: 0.0153  |  Spearman r: 0.4571  |  Pred std: 0.0713
+  -> Checkpoint saved (epoch 39)
+Epochs without improvement: 0
+Epoch 40: Train MSE: 0.0481  |  Val MSE: 0.0161  |  Spearman r: 0.4635  |  Pred std: 0.0700
+Epochs without improvement: 1
+Epoch 41: Train MSE: 0.0465  |  Val MSE: 0.0152  |  Spearman r: 0.4662  |  Pred std: 0.0696
+  -> Checkpoint saved (epoch 41)
+Epochs without improvement: 0
+Epoch 42: Train MSE: 0.0453  |  Val MSE: 0.0158  |  Spearman r: 0.4726  |  Pred std: 0.0686
+Epochs without improvement: 1
+Epoch 43: Train MSE: 0.0440  |  Val MSE: 0.0152  |  Spearman r: 0.4770  |  Pred std: 0.0684
+  -> Checkpoint saved (epoch 43)
+Epochs without improvement: 0
+Epoch 44: Train MSE: 0.0423  |  Val MSE: 0.0157  |  Spearman r: 0.4823  |  Pred std: 0.0675
+Epochs without improvement: 1
+Epoch 45: Train MSE: 0.0410  |  Val MSE: 0.0146  |  Spearman r: 0.4856  |  Pred std: 0.0677
+  -> Checkpoint saved (epoch 45)
+Epochs without improvement: 0
+Epoch 46: Train MSE: 0.0396  |  Val MSE: 0.0144  |  Spearman r: 0.4891  |  Pred std: 0.0670
+  -> Checkpoint saved (epoch 46)
+Epochs without improvement: 0
+Epoch 47: Train MSE: 0.0387  |  Val MSE: 0.0144  |  Spearman r: 0.4918  |  Pred std: 0.0659
+  -> Checkpoint saved (epoch 47)
+Epochs without improvement: 0
+Epoch 48: Train MSE: 0.0370  |  Val MSE: 0.0134  |  Spearman r: 0.4939  |  Pred std: 0.0660
+  -> Checkpoint saved (epoch 48)
+Epochs without improvement: 0
+Epoch 49: Train MSE: 0.0359  |  Val MSE: 0.0139  |  Spearman r: 0.5008  |  Pred std: 0.0655
+Epochs without improvement: 1
+Epoch 50: Train MSE: 0.0347  |  Val MSE: 0.0131  |  Spearman r: 0.5032  |  Pred std: 0.0653
+  -> Checkpoint saved (epoch 50)
+Epochs without improvement: 0
+Epoch 51: Train MSE: 0.0335  |  Val MSE: 0.0129  |  Spearman r: 0.5078  |  Pred std: 0.0651
+  -> Checkpoint saved (epoch 51)
+Epochs without improvement: 0
+Epoch 52: Train MSE: 0.0327  |  Val MSE: 0.0128  |  Spearman r: 0.5111  |  Pred std: 0.0646
+  -> Checkpoint saved (epoch 52)
+Epochs without improvement: 0
+Epoch 53: Train MSE: 0.0311  |  Val MSE: 0.0127  |  Spearman r: 0.5140  |  Pred std: 0.0638
+  -> Checkpoint saved (epoch 53)
+Epochs without improvement: 0
+Epoch 54: Train MSE: 0.0308  |  Val MSE: 0.0123  |  Spearman r: 0.5164  |  Pred std: 0.0634
+  -> Checkpoint saved (epoch 54)
+Epochs without improvement: 0
+Epoch 55: Train MSE: 0.0295  |  Val MSE: 0.0126  |  Spearman r: 0.5208  |  Pred std: 0.0624
+Epochs without improvement: 1
+Epoch 56: Train MSE: 0.0285  |  Val MSE: 0.0122  |  Spearman r: 0.5233  |  Pred std: 0.0620
+  -> Checkpoint saved (epoch 56)
+Epochs without improvement: 0
+Epoch 57: Train MSE: 0.0275  |  Val MSE: 0.0117  |  Spearman r: 0.5260  |  Pred std: 0.0623
+  -> Checkpoint saved (epoch 57)
+Epochs without improvement: 0
+Epoch 58: Train MSE: 0.0265  |  Val MSE: 0.0122  |  Spearman r: 0.5301  |  Pred std: 0.0615
+Epochs without improvement: 1
+Epoch 59: Train MSE: 0.0256  |  Val MSE: 0.0116  |  Spearman r: 0.5325  |  Pred std: 0.0618
+  -> Checkpoint saved (epoch 59)
+Epochs without improvement: 0
+Epoch 60: Train MSE: 0.0247  |  Val MSE: 0.0114  |  Spearman r: 0.5353  |  Pred std: 0.0615
+  -> Checkpoint saved (epoch 60)
+Epochs without improvement: 0
+Epoch 61: Train MSE: 0.0242  |  Val MSE: 0.0117  |  Spearman r: 0.5388  |  Pred std: 0.0606
+Epochs without improvement: 1
+Epoch 62: Train MSE: 0.0230  |  Val MSE: 0.0112  |  Spearman r: 0.5412  |  Pred std: 0.0608
+  -> Checkpoint saved (epoch 62)
+Epochs without improvement: 0
+Epoch 63: Train MSE: 0.0223  |  Val MSE: 0.0109  |  Spearman r: 0.5434  |  Pred std: 0.0607
+  -> Checkpoint saved (epoch 63)
+Epochs without improvement: 0
+Epoch 64: Train MSE: 0.0219  |  Val MSE: 0.0111  |  Spearman r: 0.5470  |  Pred std: 0.0602
+Epochs without improvement: 1
+Epoch 65: Train MSE: 0.0209  |  Val MSE: 0.0104  |  Spearman r: 0.5480  |  Pred std: 0.0606
+  -> Checkpoint saved (epoch 65)
+Epochs without improvement: 0
+Epoch 66: Train MSE: 0.0202  |  Val MSE: 0.0105  |  Spearman r: 0.5508  |  Pred std: 0.0601
+Epochs without improvement: 1
+Epoch 67: Train MSE: 0.0196  |  Val MSE: 0.0106  |  Spearman r: 0.5537  |  Pred std: 0.0596
+Epochs without improvement: 2
+Epoch 68: Train MSE: 0.0190  |  Val MSE: 0.0107  |  Spearman r: 0.5564  |  Pred std: 0.0593
+Epochs without improvement: 3
+Epoch 69: Train MSE: 0.0183  |  Val MSE: 0.0105  |  Spearman r: 0.5585  |  Pred std: 0.0594
+Epochs without improvement: 4
+Epoch 70: Train MSE: 0.0178  |  Val MSE: 0.0105  |  Spearman r: 0.5601  |  Pred std: 0.0587
+Epochs without improvement: 5
+Epoch 71: Train MSE: 0.0172  |  Val MSE: 0.0104  |  Spearman r: 0.5622  |  Pred std: 0.0586
+  -> Checkpoint saved (epoch 71)
+Epochs without improvement: 0
+Epoch 72: Train MSE: 0.0168  |  Val MSE: 0.0101  |  Spearman r: 0.5641  |  Pred std: 0.0586
+  -> Checkpoint saved (epoch 72)
+Epochs without improvement: 0
+Epoch 73: Train MSE: 0.0164  |  Val MSE: 0.0102  |  Spearman r: 0.5663  |  Pred std: 0.0585
+Epochs without improvement: 1
+Epoch 74: Train MSE: 0.0156  |  Val MSE: 0.0100  |  Spearman r: 0.5677  |  Pred std: 0.0586
+  -> Checkpoint saved (epoch 74)
+Epochs without improvement: 0
+Epoch 75: Train MSE: 0.0151  |  Val MSE: 0.0099  |  Spearman r: 0.5693  |  Pred std: 0.0583
+  -> Checkpoint saved (epoch 75)
+Epochs without improvement: 0
+Epoch 76: Train MSE: 0.0148  |  Val MSE: 0.0098  |  Spearman r: 0.5711  |  Pred std: 0.0586
+  -> Checkpoint saved (epoch 76)
+Epochs without improvement: 0
+Epoch 77: Train MSE: 0.0143  |  Val MSE: 0.0099  |  Spearman r: 0.5725  |  Pred std: 0.0580
+Epochs without improvement: 1
+Epoch 78: Train MSE: 0.0142  |  Val MSE: 0.0097  |  Spearman r: 0.5740  |  Pred std: 0.0579
+  -> Checkpoint saved (epoch 78)
+Epochs without improvement: 0
+Epoch 79: Train MSE: 0.0136  |  Val MSE: 0.0097  |  Spearman r: 0.5754  |  Pred std: 0.0578
+  -> Checkpoint saved (epoch 79)
+Epochs without improvement: 0
+Epoch 80: Train MSE: 0.0134  |  Val MSE: 0.0096  |  Spearman r: 0.5763  |  Pred std: 0.0575
+  -> Checkpoint saved (epoch 80)
+Epochs without improvement: 0
+Epoch 81: Train MSE: 0.0132  |  Val MSE: 0.0096  |  Spearman r: 0.5775  |  Pred std: 0.0567
+Epochs without improvement: 1
+Epoch 82: Train MSE: 0.0128  |  Val MSE: 0.0097  |  Spearman r: 0.5784  |  Pred std: 0.0564
+Epochs without improvement: 2
+Epoch 83: Train MSE: 0.0125  |  Val MSE: 0.0095  |  Spearman r: 0.5794  |  Pred std: 0.0562
+  -> Checkpoint saved (epoch 83)
+Epochs without improvement: 0
+Epoch 84: Train MSE: 0.0124  |  Val MSE: 0.0095  |  Spearman r: 0.5804  |  Pred std: 0.0559
+  -> Checkpoint saved (epoch 84)
+Epochs without improvement: 0
+Epoch 85: Train MSE: 0.0121  |  Val MSE: 0.0094  |  Spearman r: 0.5814  |  Pred std: 0.0555
+  -> Checkpoint saved (epoch 85)
+Epochs without improvement: 0
+Epoch 86: Train MSE: 0.0118  |  Val MSE: 0.0094  |  Spearman r: 0.5821  |  Pred std: 0.0554
+  -> Checkpoint saved (epoch 86)
+Epochs without improvement: 0
+Epoch 87: Train MSE: 0.0117  |  Val MSE: 0.0094  |  Spearman r: 0.5827  |  Pred std: 0.0546
+Epochs without improvement: 1
+Epoch 88: Train MSE: 0.0116  |  Val MSE: 0.0093  |  Spearman r: 0.5837  |  Pred std: 0.0546
+  -> Checkpoint saved (epoch 88)
+Epochs without improvement: 0
+Epoch 89: Train MSE: 0.0114  |  Val MSE: 0.0094  |  Spearman r: 0.5840  |  Pred std: 0.0535
+Epochs without improvement: 1
+Epoch 90: Train MSE: 0.0113  |  Val MSE: 0.0094  |  Spearman r: 0.5850  |  Pred std: 0.0529
+Epochs without improvement: 2
+Epoch 91: Train MSE: 0.0113  |  Val MSE: 0.0094  |  Spearman r: 0.5856  |  Pred std: 0.0527
+Epochs without improvement: 3
+Epoch 92: Train MSE: 0.0111  |  Val MSE: 0.0094  |  Spearman r: 0.5863  |  Pred std: 0.0520
+Epochs without improvement: 4
+Epoch 93: Train MSE: 0.0111  |  Val MSE: 0.0094  |  Spearman r: 0.5869  |  Pred std: 0.0513
+Epochs without improvement: 5
+Epoch 94: Train MSE: 0.0110  |  Val MSE: 0.0094  |  Spearman r: 0.5874  |  Pred std: 0.0507
+Epochs without improvement: 6
+Epoch 95: Train MSE: 0.0109  |  Val MSE: 0.0095  |  Spearman r: 0.5879  |  Pred std: 0.0502
+Epochs without improvement: 7
+Epoch 96: Train MSE: 0.0109  |  Val MSE: 0.0095  |  Spearman r: 0.5883  |  Pred std: 0.0492
+Epochs without improvement: 8
+Epoch 97: Train MSE: 0.0109  |  Val MSE: 0.0095  |  Spearman r: 0.5886  |  Pred std: 0.0490
+Epochs without improvement: 9
+Epoch 98: Train MSE: 0.0109  |  Val MSE: 0.0094  |  Spearman r: 0.5900  |  Pred std: 0.0500
+Epochs without improvement: 10
+Epoch 99: Train MSE: 0.0108  |  Val MSE: 0.0095  |  Spearman r: 0.5900  |  Pred std: 0.0495
+Epochs without improvement: 11
+Epoch 100: Train MSE: 0.0108  |  Val MSE: 0.0095  |  Spearman r: 0.5905  |  Pred std: 0.0490
+Epochs without improvement: 12
+Epoch 101: Train MSE: 0.0108  |  Val MSE: 0.0096  |  Spearman r: 0.5905  |  Pred std: 0.0478
+Epochs without improvement: 13
+Epoch 102: Train MSE: 0.0108  |  Val MSE: 0.0095  |  Spearman r: 0.5911  |  Pred std: 0.0486
+Epochs without improvement: 14
+Epoch 103: Train MSE: 0.0108  |  Val MSE: 0.0095  |  Spearman r: 0.5919  |  Pred std: 0.0483
+Epochs without improvement: 15
+Epoch 104: Train MSE: 0.0108  |  Val MSE: 0.0096  |  Spearman r: 0.5919  |  Pred std: 0.0470
+Epochs without improvement: 16
+Epoch 105: Train MSE: 0.0108  |  Val MSE: 0.0095  |  Spearman r: 0.5925  |  Pred std: 0.0486
+Epochs without improvement: 17
+Epoch 106: Train MSE: 0.0108  |  Val MSE: 0.0096  |  Spearman r: 0.5929  |  Pred std: 0.0482
+Epochs without improvement: 18
+Epoch 107: Train MSE: 0.0107  |  Val MSE: 0.0095  |  Spearman r: 0.5933  |  Pred std: 0.0487
+Epochs without improvement: 19
+Epoch 108: Train MSE: 0.0107  |  Val MSE: 0.0096  |  Spearman r: 0.5933  |  Pred std: 0.0476
+Epochs without improvement: 20
+
+Early stopping triggered at epoch 108
+Final Test MSE: 0.0099  |  Final Test Spearman r: 0.5806  |  Final Test Pred std: 0.0480

@@ -78,8 +78,8 @@ MEG_MS_START:      int = -100   # full model temporal range (must match checkpoi
 MEG_MS_END:        int = 1300
 MEG_MS_STEP:       int = 5
 
-EXTRACT_START:     int = -100   # first timepoint to extract
-EXTRACT_END:       int = 1300   # last timepoint to extract (inclusive)
+EXTRACT_START:     int = int(os.environ.get('EXTRACT_START', -100))   # first timepoint to extract
+EXTRACT_END:       int = int(os.environ.get('EXTRACT_END',   1300))   # last timepoint to extract (inclusive)
 EXTRACT_STEP:      int = 5      # stride in ms; 5 = full model resolution (281 timepoints)
 
 TRAIN_WINDOW_SIZE: int = 0      # no averaging window — use exact parameters per timepoint
@@ -177,7 +177,7 @@ def _build_meg_model(
     print(f'[MEG] Loading checkpoint: {meg_checkpoint}')
     state_dict = torch.load(meg_checkpoint, map_location='cpu')
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
+    model.load_state_dict(state_dict, strict=True)
     print('[MEG] Checkpoint loaded successfully.')
 
     # Confirm learned scalar parameters loaded from checkpoint
@@ -227,6 +227,8 @@ def extract_meg_embeddings_for_fold(
     rank: int = 32,
     extract_step: int = EXTRACT_STEP,
     train_window_size: int = TRAIN_WINDOW_SIZE,
+    extract_start: int = EXTRACT_START,
+    extract_end: int = EXTRACT_END,
     memcat_meta_csv: 'str | None' = None,
 ) -> None:
     """Extract and save 66-dim MEG embeddings for every timepoint and split.
@@ -249,7 +251,12 @@ def extract_meg_embeddings_for_fold(
         vision_layers:      ViT DoRA layers (must match checkpoint).
         transformer_layers: Text-transformer DoRA layers (must match checkpoint).
         rank:               DoRA rank (must match checkpoint).
+        extract_start:      First timepoint in ms (default -100).  Ignored when
+                            ``timepoints`` is provided.
+        extract_end:        Last timepoint in ms, inclusive (default 1300).  Ignored
+                            when ``timepoints`` is provided.
         extract_step:       Stride in ms between extracted timepoints (default 5).
+                            Ignored when ``timepoints`` is provided.
         train_window_size:  Temporal averaging half-width in ms (default 0 = exact).
         memcat_meta_csv:    Path to memcat_image_data.csv (combined dataset only).
     """
@@ -412,6 +419,20 @@ def main() -> None:
              '<data_dir>/combined_lamem_memcat/meg_embeddings/.',
     )
     parser.add_argument(
+        '--extract_start',
+        type=int,
+        default=EXTRACT_START,
+        help='First timepoint to extract in ms (default -100).  '
+             'Also settable via EXTRACT_START env var.',
+    )
+    parser.add_argument(
+        '--extract_end',
+        type=int,
+        default=EXTRACT_END,
+        help='Last timepoint to extract in ms, inclusive (default 1300).  '
+             'Also settable via EXTRACT_END env var.',
+    )
+    parser.add_argument(
         '--extract_step',
         type=int,
         default=int(os.environ.get('EXTRACT_STEP', EXTRACT_STEP)),
@@ -491,7 +512,8 @@ def main() -> None:
         memcat_meta_csv = args.memcat_meta_csv
         out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
-    n_tps = len(range(EXTRACT_START, EXTRACT_END + 1, args.extract_step))
+        n_tps = len(range(args.extract_start, args.extract_end + 1, args.extract_step))
+        tp_desc = (f'{args.extract_start} to {args.extract_end} ms, ')
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')
@@ -518,6 +540,8 @@ def main() -> None:
         rank=args.rank,
         extract_step=args.extract_step,
         train_window_size=TRAIN_WINDOW_SIZE,
+        extract_start=args.extract_start,
+        extract_end=args.extract_end,
         memcat_meta_csv=memcat_meta_csv,
     )
 

@@ -1,0 +1,44 @@
+{
+  "started_at": "2026-03-30T23:03:47",
+  "n_trials_requested": 50,
+  "model_type": "clip_hba_meg_mem_tp100",
+  "timepoint_ms": 100,
+  "input_dim": 66,
+  "training_data": "combined_lamem_memcat",
+  "n_folds": 10,
+  "embeddings_dir_base": "Z:\\multimodal_brain_inspired\\marren\\MEGMem\\combined_lamem_memcat",
+  "search_space": {
+    "hidden_dims": [
+      "(32,)",
+      "(16,)",
+      "(32, 16)",
+      "(16, 8)",
+      "(128, 32)",
+      "(256, 64)",
+      "(128, 64, 16)",
+      "(256, 128, 32)"
+    ],
+    "dropout_rate": [
+      0.1,
+      0.7
+    ],
+    "lr": [
+      1e-05,
+      0.0005
+    ],
+    "weight_decay": [
+      1e-05,
+      0.1
+    ],
+    "batch_size": [
+      32,
+      64,
+      128,
+      256
+    ]
+  },
+  "optuna_sampler": "TPESampler",
+  "python_version": "3.11.14 | packaged by conda-forge | (main, Oct 22 2025, 22:35:28) [MSC v.1944 64 bit (AMD64)]",
+  "git_commit": "a252db7",
+  "resume_events": []
+}
