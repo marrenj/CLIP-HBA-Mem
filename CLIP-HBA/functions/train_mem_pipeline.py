@@ -739,7 +739,7 @@ def _run_mem_training_impl(config, run_timestamp):
     model.eval()
     with torch.no_grad():
         if use_precomputed:
-            _dummy_emb = torch.randn(2, 768).to(device)
+            _dummy_emb = torch.randn(2, config.get('input_dim', 768)).to(device)
             _out = model(_dummy_emb)
             print(f'[Model] MLPOnlyHead output shape: {tuple(_out.shape)}  '
                   f'(squeezed: {tuple(_out.squeeze(1).shape)})')
