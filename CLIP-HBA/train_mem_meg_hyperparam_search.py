@@ -96,6 +96,10 @@ else:
         f"Choose 'lamem' or 'combined_lamem_memcat'."
     )
 
+# Allow overriding the number of folds via env var (e.g. N_FOLDS=5 with combined_lamem_memcat)
+if 'N_FOLDS' in os.environ:
+    N_FOLDS = int(os.environ['N_FOLDS'])
+
 # ---------------------------------------------------------------------------
 # Hyperparameter search space
 #
