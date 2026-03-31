@@ -546,12 +546,22 @@ def main() -> None:
         memcat_meta_csv = args.memcat_meta_csv
         out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
+    # Resolve the effective start/end/step that the CLIPHBA model must be built
+    # with.  When --timepoints is given, derive these from the sorted list so
+    # that the model's train_start/train_end/train_step match exactly.
     if args.timepoints is not None:
-        tp_desc = f'explicit: {args.timepoints}  ({len(args.timepoints)} total)'
+        tp_sorted = sorted(args.timepoints)
+        eff_start = tp_sorted[0]
+        eff_end   = tp_sorted[-1]
+        eff_step  = (tp_sorted[1] - tp_sorted[0]) if len(tp_sorted) > 1 else MEG_MS_STEP
+        tp_desc   = f'explicit: {tp_sorted}  ({len(tp_sorted)} total)'
     else:
-        n_tps = len(range(args.extract_start, args.extract_end + 1, args.extract_step))
-        tp_desc = (f'{args.extract_start} to {args.extract_end} ms, '
-                   f'step {args.extract_step} ms  ({n_tps} total)')
+        eff_start = args.extract_start
+        eff_end   = args.extract_end
+        eff_step  = args.extract_step
+        n_tps = len(range(eff_start, eff_end + 1, eff_step))
+        tp_desc = (f'{eff_start} to {eff_end} ms, '
+                   f'step {eff_step} ms  ({n_tps} total)')
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')
@@ -575,9 +585,9 @@ def main() -> None:
         vision_layers=args.vision_layers,
         transformer_layers=args.transformer_layers,
         rank=args.rank,
-        extract_start=args.extract_start,
-        extract_end=args.extract_end,
-        extract_step=args.extract_step,
+        extract_start=eff_start,
+        extract_end=eff_end,
+        extract_step=eff_step,
         train_window_size=TRAIN_WINDOW_SIZE,
         memcat_meta_csv=memcat_meta_csv,
         timepoints=args.timepoints,
