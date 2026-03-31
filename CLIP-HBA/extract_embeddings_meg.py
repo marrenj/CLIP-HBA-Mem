@@ -129,7 +129,7 @@ def _build_meg_model(
 
     print(f'[MEG] Building CLIPHBA  backbone=ViT-L/14  '
           f'ms=[{MEG_MS_START}, {MEG_MS_END}] step={MEG_MS_STEP} ms  '
-          f'extract=[{EXTRACT_START}, {EXTRACT_END}] step={extract_step} ms  '
+          f'extract=[{extract_start}, {extract_end}] step={extract_step} ms  '
           f'window={train_window_size} ms')
     print(f'[MEG] Init params:  weighting_matrix={weighting_matrix}  beta={beta}  '
           f'noise_level={noise_level}  visual_scaler={visual_scaler}  '
@@ -292,7 +292,7 @@ def extract_meg_embeddings_for_fold(
         return
 
     model = _build_meg_model(
-        meg_checkpoint, vision_layers, transformer_layers, rank,
+        meg_checkpoint, vision_layers, transformer_layers, rank, extract_start=extract_start, extract_end=extract_end,
         extract_step=extract_step, train_window_size=train_window_size,
     )
     model.to(device)
@@ -494,6 +494,9 @@ def main() -> None:
 
     fold = args.fold
 
+    n_tps = len(range(args.extract_start, args.extract_end + 1, args.extract_step))
+    tp_desc = (f'{args.extract_start} to {args.extract_end} ms, ')
+
     if args.training_data == 'lamem':
         train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
         val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
@@ -512,8 +515,6 @@ def main() -> None:
         memcat_meta_csv = args.memcat_meta_csv
         out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
 
-        n_tps = len(range(args.extract_start, args.extract_end + 1, args.extract_step))
-        tp_desc = (f'{args.extract_start} to {args.extract_end} ms, ')
     print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
     print(f'  Training data:  {args.training_data}')
     print(f'  Fold:           {fold}')

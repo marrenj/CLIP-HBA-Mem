@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"wandb\\\\|mlflow\\\\|tensorboard\\\\|experiment\\\\|tracking\" /c/Users/BrainInspired/Documents/GitHub/CLIP-HBA-Mem/CLIP-HBA/*.py)",
+      "Bash(xargs grep:*)",
+      "Bash(grep:*)",
+      "Bash(find /c/Users/BrainInspired/Documents/GitHub/CLIP-HBA-Mem/CLIP-HBA -name *evaluati* -o -name *eval* -o -name *test*)",
+      "Bash(head -100 /c/Users/BrainInspired/Documents/GitHub/CLIP-HBA-Mem/CLIP-HBA/sweep_mem_out/*/config.json)",
+      "Bash(find /c/Users/BrainInspired/Documents/GitHub/CLIP-HBA-Mem -name *.slurm)",
+      "Bash(ls:*)",
+      "Bash(find /c/Users/BrainInspired/Documents/GitHub/CLIP-HBA-Mem -name *.ipynb)"
+    ]
+  }
+}

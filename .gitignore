@@ -168,3 +168,7 @@ mmedit/.mim
 /CLIP-HBA/preds/
 /CLIP-HBA/logs/
 /CLIP-HBA/sweep_out/
+/CLIP-HBA/sweep_meg_out/
+/CLIP-HBA/sweep_meg_out/*
+/CLIP-HBA/sweep_meg_out/
+/CLIP-HBA/sweep_meg_out/*
