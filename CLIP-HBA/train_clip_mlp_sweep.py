@@ -53,7 +53,7 @@ BASE_CONFIG = {
     # Fixed training settings for the sweep
     'epochs':                  300,
     'early_stopping_patience': 12,
-    'train_fraction':          0.2,
+    'train_fraction':          float(os.environ.get('TRAIN_FRACTION', 0.2)),
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
 }

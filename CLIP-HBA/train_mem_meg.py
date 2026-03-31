@@ -92,6 +92,10 @@ def main() -> None:
                         default=int(os.environ.get('BATCH_SIZE', 64)))
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--early_stopping_patience', type=int, default=20)
+    parser.add_argument('--train_fraction', type=float,
+                        default=float(os.environ.get('TRAIN_FRACTION', 1.0)),
+                        help='Fraction of training data to use (0.0–1.0). '
+                             'Also settable via TRAIN_FRACTION env var.')
     parser.add_argument('--seed', type=int,
                         default=int(os.environ.get('RANDOM_SEED', 1)))
     # --- Paths ---
@@ -186,6 +190,7 @@ def main() -> None:
         'lr':                       args.lr,
         'weight_decay':             args.weight_decay,
         'early_stopping_patience':  args.early_stopping_patience,
+        'train_fraction':           args.train_fraction,
 
         # Device & I/O
         'cuda':            args.cuda,

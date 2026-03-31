@@ -226,7 +226,7 @@ def _objective(
                 'batch_size':    batch_size,
                 'epochs':        300,
                 'early_stopping_patience': 20,
-                'train_fraction': 1.0,
+                'train_fraction': float(os.environ.get('TRAIN_FRACTION', 1.0)),
                 'criterion':     nn.MSELoss(),
                 # Logging
                 'log_path':        os.path.join(fold_dir, 'log.txt'),

@@ -64,6 +64,7 @@ def main():
         'lr':                       3.8e-5,
         'weight_decay':             5.36e-4,
         'early_stopping_patience':  20,
+        'train_fraction':           float(os.environ.get('TRAIN_FRACTION', 1.0)),
         'checkpoint_path':          './models/clip_hba_mem',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),

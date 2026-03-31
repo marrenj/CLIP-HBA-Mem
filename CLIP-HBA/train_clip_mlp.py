@@ -40,6 +40,7 @@ def main():
         'lr':                      8.1e-5,
         'weight_decay':            0.0205,
         'early_stopping_patience': 20,
+        'train_fraction':          float(os.environ.get('TRAIN_FRACTION', 1.0)),
         'checkpoint_path':         './models/clip_frozen_mlp',
         'random_seed':             1,
         'criterion':               nn.MSELoss(),

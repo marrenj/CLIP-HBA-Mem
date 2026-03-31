@@ -122,7 +122,7 @@ BASE_CONFIG = {
     # Fixed training settings for the sweep
     'epochs':                  300,
     'early_stopping_patience': 20,    # shorter than final training to speed up sweep
-    'train_fraction':          1.0,   # full training set — epochs are ~3 s with precomputed embeddings
+    'train_fraction':          float(os.environ.get('TRAIN_FRACTION', 1.0)),
     'criterion':               nn.MSELoss(),
     'random_seed':             42,
 }
