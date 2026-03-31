@@ -56,7 +56,9 @@ Usage
 import argparse
 import os
 import pathlib
+import shutil
 import sys
+import tempfile
 
 import torch
 from torch.utils.data import DataLoader
@@ -359,7 +361,18 @@ def extract_meg_embeddings_for_fold(
                 'scores':      all_scores_tensor,
                 'image_paths': all_image_paths,
             }
-            torch.save(payload, out_path)
+            # Write to a local temp file first, then move to the (possibly
+            # network-mounted) destination.  torch.save uses a zip writer that
+            # requires random seeks, which can fail on mapped network drives.
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix='.pt')
+            try:
+                os.close(tmp_fd)
+                torch.save(payload, tmp_path)
+                shutil.move(tmp_path, out_path)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
             print(f'  tp={tp_ms:+5d} ms  ->  {out_path.name}  '
                   f'(shape {tuple(embeddings_tensor.shape)})')
 
