@@ -1,8 +1,0 @@
-{
-  "timepoint_ms": 50,
-  "hidden_dims": "(32,)",
-  "dropout_rate": 0.22097639202864672,
-  "lr": 1.896909178580937e-05,
-  "weight_decay": 4.540076719227351e-05,
-  "batch_size": 32
-}
