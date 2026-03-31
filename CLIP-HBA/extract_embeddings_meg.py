@@ -98,6 +98,8 @@ def _build_meg_model(
     vision_layers: int,
     transformer_layers: int,
     rank: int,
+    extract_start: int = EXTRACT_START,
+    extract_end: int = EXTRACT_END,
     extract_step: int = EXTRACT_STEP,
     train_window_size: int = TRAIN_WINDOW_SIZE,
 ) -> CLIPHBA:
@@ -131,7 +133,7 @@ def _build_meg_model(
 
     print(f'[MEG] Building CLIPHBA  backbone=ViT-L/14  '
           f'ms=[{MEG_MS_START}, {MEG_MS_END}] step={MEG_MS_STEP} ms  '
-          f'extract=[{EXTRACT_START}, {EXTRACT_END}] step={extract_step} ms  '
+          f'extract=[{extract_start}, {extract_end}] step={extract_step} ms  '
           f'window={train_window_size} ms')
     print(f'[MEG] Init params:  weighting_matrix={weighting_matrix}  beta={beta}  '
           f'noise_level={noise_level}  visual_scaler={visual_scaler}  '
@@ -145,9 +147,9 @@ def _build_meg_model(
         ms_start=MEG_MS_START,
         ms_step=MEG_MS_STEP,
         ms_end=MEG_MS_END,
-        train_start=EXTRACT_START,
+        train_start=extract_start,
         train_step=extract_step,
-        train_end=EXTRACT_END,
+        train_end=extract_end,
         train_window_size=train_window_size,
         beta=beta,
         noise_level=noise_level,
@@ -303,6 +305,7 @@ def extract_meg_embeddings_for_fold(
 
     model = _build_meg_model(
         meg_checkpoint, vision_layers, transformer_layers, rank,
+        extract_start=extract_start, extract_end=extract_end,
         extract_step=extract_step, train_window_size=train_window_size,
     )
     model.to(device)
