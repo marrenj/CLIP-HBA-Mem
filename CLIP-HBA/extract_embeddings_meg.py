@@ -419,6 +419,15 @@ def main() -> None:
              '<data_dir>/combined_lamem_memcat/meg_embeddings/.',
     )
     parser.add_argument(
+        '--timepoints',
+        type=int,
+        nargs='+',
+        default=None,
+        metavar='MS',
+        help='Explicit list of timepoints in ms to extract (e.g. --timepoints 50 150 250 350).  '
+             'When provided, --extract_step is ignored.',
+    )
+    parser.add_argument(
         '--extract_start',
         type=int,
         default=EXTRACT_START,
@@ -494,8 +503,22 @@ def main() -> None:
 
     fold = args.fold
 
-    n_tps = len(range(args.extract_start, args.extract_end + 1, args.extract_step))
-    tp_desc = (f'{args.extract_start} to {args.extract_end} ms, ')
+    # Resolve the effective start/end/step that the CLIPHBA model must be built
+    # with.  When --timepoints is given, derive these from the sorted list so
+    # that the model's train_start/train_end/train_step match exactly.
+    if args.timepoints is not None:
+        tp_sorted = sorted(args.timepoints)
+        eff_start = tp_sorted[0]
+        eff_end   = tp_sorted[-1]
+        eff_step  = (tp_sorted[1] - tp_sorted[0]) if len(tp_sorted) > 1 else MEG_MS_STEP
+        tp_desc   = f'explicit: {tp_sorted}  ({len(tp_sorted)} total)'
+    else:
+        eff_start = args.extract_start
+        eff_end   = args.extract_end
+        eff_step  = args.extract_step
+        n_tps = len(range(eff_start, eff_end + 1, eff_step))
+        tp_desc = (f'{eff_start} to {eff_end} ms, '
+                   f'step {eff_step} ms  ({n_tps} total)')
 
     if args.training_data == 'lamem':
         train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
@@ -539,10 +562,10 @@ def main() -> None:
         vision_layers=args.vision_layers,
         transformer_layers=args.transformer_layers,
         rank=args.rank,
-        extract_step=args.extract_step,
         train_window_size=TRAIN_WINDOW_SIZE,
-        extract_start=args.extract_start,
-        extract_end=args.extract_end,
+        extract_start=eff_start,
+        extract_end=eff_end,
+        extract_step=eff_step,
         memcat_meta_csv=memcat_meta_csv,
     )
 
