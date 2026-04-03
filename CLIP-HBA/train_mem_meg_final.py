@@ -5,6 +5,11 @@ timepoint trains one MLPOnlyHead per fold (10 folds) on 100% of the
 combined_lamem_memcat training split, with val held out for early stopping and
 test held out for final evaluation.
 
+After each fold's training completes, the best checkpoint (saved at peak val
+performance) is loaded and evaluated on the held-out test set.  Per-timepoint
+mean ± std of test MSE and Spearman ρ across all 10 folds are written to a
+summary CSV in ./results/.
+
 The fold loop runs inside this script (consistent with train_mem_meg_hyperparam_search.py).
 To parallelize across timepoints, pass --timepoints to restrict a given invocation to a
 subset and run multiple instances concurrently (e.g., one SLURM job per timepoint).
@@ -33,13 +38,23 @@ Prerequisites
 
 import argparse
 import ast
+import datetime
+import glob as _glob
 import os
 import pathlib
 
+import numpy as np
 import pandas as pd
+import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
-from functions.train_mem_pipeline import run_mem_training
+from functions.train_mem_pipeline import (
+    EmbeddingDataset,
+    MLPOnlyHead,
+    evaluate_mem_model,
+    run_mem_training,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +92,17 @@ def load_hyperparams(csv_path: pathlib.Path) -> dict:
             'batch_size':  int(row['batch_size']),
         }
     return hparams
+
+
+def get_device(cuda: int) -> torch.device:
+    """Resolve the torch device from the --cuda argument."""
+    if cuda == -1:
+        return torch.device('cuda')
+    if cuda == 0:
+        return torch.device('cuda:0')
+    if cuda == 1:
+        return torch.device('cuda:1')
+    return torch.device('cpu')
 
 
 def build_config(
@@ -166,6 +192,88 @@ def build_config(
     }
 
 
+def evaluate_on_test_from_checkpoint(
+    tp: int,
+    fold: int,
+    hparams: dict,
+    config: dict,
+    device: torch.device,
+) -> tuple:
+    """Load the best checkpoint and evaluate on the held-out test set.
+
+    The best checkpoint is identified by globbing for files matching the
+    naming pattern written by train_mem_model:
+        {checkpoint_path}_fold{fold}_{timestamp}.pth
+
+    Args:
+        tp:       Timepoint in ms.
+        fold:     Fold index (1–10).
+        hparams:  Hyperparameter dict for this timepoint.
+        config:   Training config dict (provides checkpoint_path, embeddings_dir, etc.).
+        device:   Torch device to run evaluation on.
+
+    Returns:
+        (test_mse, test_rho) — float pair, or (nan, nan) if no checkpoint found.
+    """
+    # Locate the checkpoint saved during this fold's training run.
+    checkpoint_path = config['checkpoint_path']
+    ckpt_dir = pathlib.Path(checkpoint_path).parent
+    ckpt_stem = pathlib.Path(checkpoint_path).name
+    pattern = str(ckpt_dir / f'{ckpt_stem}_fold{fold}_*.pth')
+    matches = sorted(_glob.glob(pattern))
+
+    if not matches:
+        print(
+            f'  [WARNING] No checkpoint found matching {pattern} — '
+            f'skipping test eval for tp={tp} fold={fold}'
+        )
+        return float('nan'), float('nan')
+
+    # Use the lexicographically last match (most recent timestamp if multiple runs).
+    ckpt_path = matches[-1]
+    print(f'  [Test eval] Loading checkpoint: {ckpt_path}')
+
+    # Rebuild model with the same architecture as training.
+    model = MLPOnlyHead(
+        hidden_dims=hparams['hidden_dims'],
+        dropout_rate=hparams['dropout'],
+        input_dim=66,
+    )
+    state = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+    model.load_state_dict(state)
+    model.to(device)
+
+    # Load the test split embedding file.
+    model_type = config['model_type']
+    emb_dir = pathlib.Path(config['embeddings_dir'])
+    test_pt = emb_dir / f'{model_type}_fold{fold}_test.pt'
+
+    if not test_pt.exists():
+        print(
+            f'  [WARNING] Test embedding file not found: {test_pt} — '
+            f'skipping test eval for tp={tp} fold={fold}'
+        )
+        return float('nan'), float('nan')
+
+    test_dataset = EmbeddingDataset(test_pt)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config['batch_size'],
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    test_mse, test_rho, _ = evaluate_mem_model(
+        model, test_loader, device, nn.MSELoss()
+    )
+    print(
+        f'  [Test eval] tp={tp:+d} ms  fold={fold}  '
+        f'test_mse={test_mse:.4f}  test_rho={test_rho:.4f}'
+    )
+    return float(test_mse), float(test_rho)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -237,6 +345,11 @@ def main() -> None:
             'Defaults to <data_dir>/combined_lamem_memcat/meg_embeddings/.'
         ),
     )
+    parser.add_argument(
+        '--summary_dir',
+        default='./results',
+        help='Directory to write the per-timepoint summary CSV.',
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -262,6 +375,7 @@ def main() -> None:
         timepoints = [tp for tp in timepoints if tp in args.timepoints]
 
     folds = args.folds
+    device = get_device(args.cuda)
 
     total_runs = len(timepoints) * len(folds)
     print(f'\n{"="*60}')
@@ -273,14 +387,15 @@ def main() -> None:
     print(f'  Epochs     : {args.epochs}  (patience={args.early_stopping_patience})')
     print(f'  CSV        : {csv_path}')
     print(f'  Data dir   : {args.data_dir}')
-    print(f'  CUDA       : {args.cuda}')
+    print(f'  CUDA       : {args.cuda}  (device: {device})')
     print(f'  Seed       : {args.seed}')
     print(f'{"="*60}\n')
 
     # ------------------------------------------------------------------
     # Training loop: outer = timepoints, inner = folds
     # ------------------------------------------------------------------
-    results: list[dict] = []
+    # fold_results: {tp: [{val_loss, val_rho, test_mse, test_rho}, ...]}
+    fold_results: dict = {tp: [] for tp in timepoints}
     run_idx = 0
 
     for tp in timepoints:
@@ -301,33 +416,98 @@ def main() -> None:
             print(f'\n[Run {run_idx}/{total_runs}]  tp={tp:+d} ms  fold={fold}')
 
             config = build_config(tp, fold, hparams, args)
-            best_val_loss, best_rho = run_mem_training(config)
 
-            results.append({
-                'timepoint': tp,
-                'fold':      fold,
-                'best_val_loss': best_val_loss,
-                'best_rho':  best_rho,
+            # Train — uses 100% of the training split (no train_fraction set).
+            # Val split is held out for early stopping; test split is internally
+            # evaluated at early stopping time (current model state, logged to
+            # the fold log file).  We re-evaluate below using the best checkpoint.
+            best_val_loss, best_val_rho = run_mem_training(config)
+
+            # Evaluate on test set using the best checkpoint.
+            test_mse, test_rho = evaluate_on_test_from_checkpoint(
+                tp, fold, hparams, config, device
+            )
+
+            fold_results[tp].append({
+                'fold':         fold,
+                'val_loss':     best_val_loss,
+                'val_rho':      best_val_rho,
+                'test_mse':     test_mse,
+                'test_rho':     test_rho,
             })
             print(
                 f'  → tp={tp:+d} ms  fold={fold}  '
-                f'best_val_loss={best_val_loss:.4f}  best_rho={best_rho:.4f}'
+                f'best_val_loss={best_val_loss:.4f}  best_val_rho={best_val_rho:.4f}  '
+                f'test_mse={test_mse:.4f}  test_rho={test_rho:.4f}'
             )
 
     # ------------------------------------------------------------------
-    # Final summary table
+    # Aggregate and write summary
     # ------------------------------------------------------------------
-    print(f'\n{"="*60}')
-    print('Training complete — summary')
-    print(f'{"="*60}')
-    print(f'{"Timepoint":>12}  {"Fold":>4}  {"Val MSE":>8}  {"Spearman ρ":>10}')
-    print(f'{"-"*12}  {"-"*4}  {"-"*8}  {"-"*10}')
-    for r in results:
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    summary_dir = pathlib.Path(args.summary_dir)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = summary_dir / f'meg_mem_final_summary_{timestamp}.csv'
+
+    summary_rows = []
+    for tp in timepoints:
+        rows = fold_results[tp]
+        if not rows:
+            continue
+
+        val_losses  = [r['val_loss']  for r in rows if not np.isnan(r['val_loss'])]
+        val_rhos    = [r['val_rho']   for r in rows if not np.isnan(r['val_rho'])]
+        test_mses   = [r['test_mse']  for r in rows if not np.isnan(r['test_mse'])]
+        test_rhos   = [r['test_rho']  for r in rows if not np.isnan(r['test_rho'])]
+
+        summary_rows.append({
+            'timepoint':       tp,
+            'n_folds':         len(rows),
+            'mean_val_mse':    float(np.mean(val_losses))  if val_losses  else float('nan'),
+            'std_val_mse':     float(np.std(val_losses))   if val_losses  else float('nan'),
+            'mean_val_rho':    float(np.mean(val_rhos))    if val_rhos    else float('nan'),
+            'std_val_rho':     float(np.std(val_rhos))     if val_rhos    else float('nan'),
+            'mean_test_mse':   float(np.mean(test_mses))   if test_mses   else float('nan'),
+            'std_test_mse':    float(np.std(test_mses))    if test_mses   else float('nan'),
+            'mean_test_rho':   float(np.mean(test_rhos))   if test_rhos   else float('nan'),
+            'std_test_rho':    float(np.std(test_rhos))    if test_rhos   else float('nan'),
+            # Per-fold detail columns (fold1_test_rho, fold2_test_rho, …)
+            **{f'fold{r["fold"]}_val_mse':  r['val_loss']  for r in rows},
+            **{f'fold{r["fold"]}_val_rho':  r['val_rho']   for r in rows},
+            **{f'fold{r["fold"]}_test_mse': r['test_mse']  for r in rows},
+            **{f'fold{r["fold"]}_test_rho': r['test_rho']  for r in rows},
+        })
+
+    summary_df = pd.DataFrame(summary_rows)
+    summary_df.to_csv(summary_path, index=False)
+    print(f'\nSummary written to: {summary_path}')
+
+    # ------------------------------------------------------------------
+    # Console summary table
+    # ------------------------------------------------------------------
+    print(f'\n{"="*80}')
+    print('Training complete — per-timepoint summary (mean ± std across folds)')
+    print(f'{"="*80}')
+    print(
+        f'{"Timepoint":>10}  {"Folds":>5}  '
+        f'{"Val MSE":>18}  {"Val ρ":>18}  '
+        f'{"Test MSE":>18}  {"Test ρ":>18}'
+    )
+    print(
+        f'{"":>10}  {"":>5}  '
+        f'{"mean ± std":>18}  {"mean ± std":>18}  '
+        f'{"mean ± std":>18}  {"mean ± std":>18}'
+    )
+    print(f'{"-"*10}  {"-"*5}  {"-"*18}  {"-"*18}  {"-"*18}  {"-"*18}')
+    for r in summary_rows:
         print(
-            f'{r["timepoint"]:>+12d}  {r["fold"]:>4d}  '
-            f'{r["best_val_loss"]:>8.4f}  {r["best_rho"]:>10.4f}'
+            f'{r["timepoint"]:>+10d}  {r["n_folds"]:>5d}  '
+            f'{r["mean_val_mse"]:>8.4f} ± {r["std_val_mse"]:<7.4f}  '
+            f'{r["mean_val_rho"]:>8.4f} ± {r["std_val_rho"]:<7.4f}  '
+            f'{r["mean_test_mse"]:>8.4f} ± {r["std_test_mse"]:<7.4f}  '
+            f'{r["mean_test_rho"]:>8.4f} ± {r["std_test_rho"]:<7.4f}'
         )
-    print(f'{"="*60}\n')
+    print(f'{"="*80}\n')
 
 
 if __name__ == '__main__':
