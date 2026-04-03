@@ -790,6 +790,6 @@ def _run_mem_training_impl(config, run_timestamp):
         config['fold'],
         preds_dir=config.get('preds_dir', None),
         run_timestamp=run_timestamp,
-        save_checkpoint=config.get('save_checkpoint', True),
+        save_checkpoint=config.get('save_checkpoint', False),
     )
     return best_rho
