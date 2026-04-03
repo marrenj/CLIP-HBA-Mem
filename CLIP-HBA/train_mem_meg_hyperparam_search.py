@@ -154,6 +154,7 @@ def _objective(
     sweep_dir: str,
     results_csv: str,
     sweep_stdout,
+    save_checkpoint: bool = False,
 ) -> float:
     """Sample hyperparameters, train on all folds, return mean validation MSE.
 
@@ -235,6 +236,7 @@ def _objective(
                 # Logging
                 'log_path':        os.path.join(fold_dir, 'log.txt'),
                 'checkpoint_path': os.path.join(fold_dir, 'checkpoint'),
+                'save_checkpoint': save_checkpoint,
                 'random_seed':     42,
                 # Device
                 'cuda': int(os.environ.get('CUDA_DEVICE', 1)),
@@ -341,6 +343,7 @@ def run_meg_sweep(
     timepoint_ms: int,
     n_trials: int = N_TRIALS_DEFAULT,
     resume_db: 'str | None' = None,
+    save_checkpoint: bool = False,
 ) -> None:
     """Run (or resume) a Bayesian hyperparameter search for one MEG timepoint.
 
@@ -404,7 +407,9 @@ def run_meg_sweep(
     sweep_stdout.flush()
 
     study.optimize(
-        lambda trial: _objective(trial, timepoint_ms, sweep_dir, results_csv, sweep_stdout),
+        lambda trial: _objective(
+            trial, timepoint_ms, sweep_dir, results_csv, sweep_stdout, save_checkpoint,
+        ),
         n_trials=n_trials,
         catch=(Exception,),
     )
@@ -505,6 +510,13 @@ if __name__ == '__main__':
         help='Path to an existing optuna_study.db to resume a previous search.',
     )
     parser.add_argument(
+        '--save-checkpoint',
+        action='store_true',
+        default=False,
+        help='Save best model checkpoint per fold during the sweep. '
+             'Disabled by default to reduce disk I/O during hyperparameter search.',
+    )
+    parser.add_argument(
         '--data_dir', default=None,
         help='Root data directory. NOTE: set DATA_DIR env var before import '
              'for this to affect module-level path defaults.',
@@ -514,4 +526,5 @@ if __name__ == '__main__':
         timepoint_ms=args.timepoint_ms,
         n_trials=args.n_trials,
         resume_db=args.resume,
+        save_checkpoint=args.save_checkpoint,
     )
