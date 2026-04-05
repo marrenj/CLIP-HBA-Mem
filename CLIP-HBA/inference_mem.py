@@ -210,9 +210,9 @@ def _load_perceptclip_hf(hf_cache_dir: 'str | None' = None) -> nn.Module:
 
     print(f'[HuggingFace] Downloading from {repo_id} …')
     modeling_path = hf_hub_download(filename='modeling.py', **kwargs)
-    ckpt_path = hf_hub_download(filename='pytorch_model.bin', **kwargs)
-    print(f'[HuggingFace] modeling.py      -> {modeling_path}')
-    print(f'[HuggingFace] pytorch_model.bin -> {ckpt_path}')
+    ckpt_path = hf_hub_download(filename='perceptCLIP_Memorability.pth', **kwargs)
+    print(f'[HuggingFace] modeling.py                  -> {modeling_path}')
+    print(f'[HuggingFace] perceptCLIP_Memorability.pth -> {ckpt_path}')
 
     spec = importlib.util.spec_from_file_location('perceptclip_modeling', modeling_path)
     modeling_mod = importlib.util.module_from_spec(spec)
