@@ -27,7 +27,7 @@
 #
 # Logs:
 #   SLURM stdout/stderr  ->  ./logs/perceptclip_test_<jobid>.out / .err
-#   Per-fold predictions ->  ./preds/perceptclip_test/<timestamp>/
+#   Per-fold predictions ->  ./preds/inference/combined_lamem_memcat_<timestamp>/
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -48,7 +48,7 @@ echo "=========================================="
 
 mkdir -p ./logs
 
-# --- Optional: stage images to local /tmp for faster I/O --------------------
+# --- Stage images to local /tmp for faster I/O -------------------------------
 LOCAL_LAMEM=/tmp/lamem_cache
 if [ ! -d "${LOCAL_LAMEM}" ]; then
     echo "Copying LaMem images to local storage..."
@@ -68,16 +68,17 @@ else
 fi
 
 echo "=========================================="
-echo "Running PerceptCLIP inference on all 10 test folds..."
+echo "Running PerceptCLIP inference on all 10 combined LaMem+MemCat test folds..."
 echo "=========================================="
 
-python inference_perceptclip_test.py \
+python inference_mem.py \
+    --dataset combined_lamem_memcat \
+    --fold all \
+    --model_type perceptclip \
+    --checkpoint huggingface \
     --data_dir ./Data \
-    --output_dir ./preds/perceptclip_test/ \
-    --folds 1 2 3 4 5 6 7 8 9 10 \
     --batch_size 64 \
-    --device cuda:0 \
-    --num_workers 8
+    --device cuda:0
 
 echo "=========================================="
 echo "Inference complete."

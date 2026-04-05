@@ -1,4 +1,4 @@
-"""Run memorability inference on LaMem, THINGS, or MemCat datasets.
+"""Run memorability inference on LaMem, THINGS, MemCat, or combined LaMem+MemCat datasets.
 
 Usage examples:
     # LaMem test set (fold 1) — CLIP-HBA-Mem (default)
@@ -16,10 +16,18 @@ Usage examples:
         --model_type clip_frozen_mlp \
         --checkpoint ./models/clip_frozen_mlp_fold{fold}.pth
 
-    # PerceptCLIP (CLIP + LoRA + MLP)
+    # PerceptCLIP (CLIP + LoRA + MLP) — local checkpoint
     python inference_mem.py --dataset lamem --fold 1 \
         --model_type perceptclip \
         --checkpoint ./models/perceptclip_fold{fold}.pth
+
+    # PerceptCLIP — download final checkpoint from HuggingFace
+    python inference_mem.py --dataset lamem --fold 1 \
+        --model_type perceptclip --checkpoint huggingface
+
+    # PerceptCLIP on all 10 folds of the combined LaMem+MemCat test splits
+    python inference_mem.py --dataset combined_lamem_memcat --fold all \
+        --model_type perceptclip --checkpoint huggingface
 
     # THINGS dataset (requires --things_img_dir)
     python inference_mem.py --dataset things --things_img_dir ./Data/Things1854
@@ -54,9 +62,17 @@ from functions.train_behavior_things_pipeline import seed_everything
 
 
 def build_standardised_csv(dataset, output_path, data_dir='./Data', **kwargs):
-    """Create a temporary CSV with columns (image_path, score) for any dataset.
+    """Return the CSV path and img_root for the given dataset and fold.
 
-    Returns the path to the CSV and the img_root to use with MemDataset.
+    For lamem / things / memcat a temporary CSV is written to output_path.
+    For combined_lamem_memcat the pre-split CSV is used directly and img_root
+    is returned as a dict mapping set names to image directories.
+
+    Returns:
+        (csv_path, img_root, memcat_meta_csv)
+            csv_path        - path to the CSV to load
+            img_root        - str image root OR dict {set_name: root_dir}
+            memcat_meta_csv - path to memcat_image_data.csv, or None
     """
     if dataset == 'lamem':
         fold = kwargs['fold']
@@ -64,7 +80,7 @@ def build_standardised_csv(dataset, output_path, data_dir='./Data', **kwargs):
             csv_path = f'{data_dir}/lamem/all_lamem.csv'
         else:
             csv_path = f'{data_dir}/lamem/lamem_test_{fold}.csv'
-        return csv_path, f'{data_dir}/lamem/images/'
+        return csv_path, f'{data_dir}/lamem/images/', None
 
     elif dataset == 'things':
         things_csv = f'{data_dir}/THINGS_Memorability_Scores.csv'
@@ -76,7 +92,7 @@ def build_standardised_csv(dataset, output_path, data_dir='./Data', **kwargs):
         })
         df_out = df_out.dropna(subset=['score'])
         df_out.to_csv(output_path, index=False)
-        return output_path, things_img_dir
+        return output_path, things_img_dir, None
 
     elif dataset == 'memcat':
         memcat_csv = f'{data_dir}/memcat/memcat_image_data.csv'
@@ -90,22 +106,51 @@ def build_standardised_csv(dataset, output_path, data_dir='./Data', **kwargs):
             'score': df['memorability_w_fa_correction'],
         })
         df_out.to_csv(output_path, index=False)
-        return output_path, memcat_img_root
+        return output_path, memcat_img_root, None
+
+    elif dataset == 'combined_lamem_memcat':
+        fold = kwargs['fold']
+        csv_path = (
+            f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        )
+        img_root = {
+            'lamem':  f'{data_dir}/lamem/images/',
+            'memcat': f'{data_dir}/memcat/images/',
+        }
+        memcat_meta_csv = f'{data_dir}/memcat/memcat_image_data.csv'
+        return csv_path, img_root, memcat_meta_csv
 
     else:
         raise ValueError(f'Unknown dataset: {dataset!r}')
 
 
-def _build_dataset(model_type: str, csv_path: str, img_root: str):
+def _build_dataset(
+    model_type: str,
+    csv_path: str,
+    img_root: 'str | dict',
+    memcat_meta_csv: 'str | None' = None,
+):
     """Return the correct Dataset class for the given model type.
 
     clip_frozen_mlp and perceptclip were trained with standard CLIP
     normalisation (PerceptCLIPDataset).  clip_hba_mem uses the CLIP-HBA
     normalisation (MemDataset).
+
+    img_root may be a plain string (single dataset) or a dict mapping set
+    names to directories (combined_lamem_memcat splits).  memcat_meta_csv
+    is required when img_root is a dict that includes 'memcat'.
     """
     if model_type in ('perceptclip', 'clip_frozen_mlp'):
-        return PerceptCLIPDataset(csv_file=csv_path, img_root=img_root)
-    return MemDataset(csv_file=csv_path, img_root=img_root)
+        return PerceptCLIPDataset(
+            csv_file=csv_path,
+            img_root=img_root,
+            memcat_meta_csv=memcat_meta_csv,
+        )
+    return MemDataset(
+        csv_file=csv_path,
+        img_root=img_root,
+        memcat_meta_csv=memcat_meta_csv,
+    )
 
 
 def _build_model(config: dict) -> nn.Module:
@@ -135,6 +180,60 @@ def _build_model(config: dict) -> nn.Module:
         raise ValueError(f'Unknown model_type: {model_type!r}')
 
 
+def _load_perceptclip_hf(hf_cache_dir: 'str | None' = None) -> nn.Module:
+    """Download PerceptCLIP/PerceptCLIP_Memorability from HuggingFace and load it.
+
+    Uses the model class from the repository's own modeling.py (via importlib)
+    to guarantee architecture compatibility with the released checkpoint.
+
+    Args:
+        hf_cache_dir: Optional local directory for HuggingFace cache.
+                      Defaults to ~/.cache/huggingface/hub.
+
+    Returns:
+        Model in eval mode with weights loaded, on CPU.
+    """
+    import importlib.util
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        raise ImportError(
+            'huggingface_hub is required to download the PerceptCLIP checkpoint. '
+            'Install it with:  pip install huggingface_hub'
+        )
+
+    repo_id = 'PerceptCLIP/PerceptCLIP_Memorability'
+    kwargs: dict = {'repo_id': repo_id}
+    if hf_cache_dir:
+        kwargs['cache_dir'] = hf_cache_dir
+
+    print(f'[HuggingFace] Downloading from {repo_id} …')
+    modeling_path = hf_hub_download(filename='modeling.py', **kwargs)
+    ckpt_path = hf_hub_download(filename='pytorch_model.bin', **kwargs)
+    print(f'[HuggingFace] modeling.py      -> {modeling_path}')
+    print(f'[HuggingFace] pytorch_model.bin -> {ckpt_path}')
+
+    spec = importlib.util.spec_from_file_location('perceptclip_modeling', modeling_path)
+    modeling_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modeling_mod)
+
+    print('[Model] Initialising clip_lora_model from HuggingFace …')
+    model: nn.Module = modeling_mod.clip_lora_model()
+
+    state_dict = torch.load(ckpt_path, map_location='cpu')
+    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        print(f'[Model] Warning — {len(missing)} missing keys: {missing[:3]} …')
+    if unexpected:
+        print(f'[Model] Warning — {len(unexpected)} unexpected keys: {unexpected[:3]} …')
+    print(f'[Model] Loaded PerceptCLIP checkpoint: {ckpt_path}')
+
+    model.eval()
+    return model
+
+
 def run_inference(config):
     seed_everything(config['random_seed'])
 
@@ -148,53 +247,66 @@ def run_inference(config):
 
     summary_rows = []
 
+    # Load PerceptCLIP from HuggingFace once; reuse across all folds.
+    _hf_model: 'nn.Module | None' = None
+    if config['checkpoint'] == 'huggingface':
+        if model_type != 'perceptclip':
+            raise ValueError(
+                "--checkpoint huggingface is only supported for --model_type perceptclip."
+            )
+        _hf_model = _load_perceptclip_hf(config.get('hf_cache_dir'))
+
     for fold in folds:
         if dataset_label == 'lamem':
             fold_suffix = '_all_lamem' if fold == 'all_lamem' else f'_fold{fold}'
+        elif dataset_label == 'combined_lamem_memcat':
+            fold_suffix = f'_fold{fold:02d}'
         else:
             fold_suffix = ''
         tmp_csv = os.path.join(out_dir, f'_tmp_{dataset_label}{fold_suffix}.csv')
 
-        csv_path, img_root = build_standardised_csv(
+        csv_path, img_root, memcat_meta_csv = build_standardised_csv(
             dataset_label, tmp_csv, data_dir=config.get('data_dir', './Data'),
             fold=fold, things_img_dir=config.get('things_img_dir', ''))
 
-        ds = _build_dataset(model_type, csv_path, img_root)
+        ds = _build_dataset(model_type, csv_path, img_root, memcat_meta_csv)
         print(f'\n[{dataset_label.upper()}{fold_suffix}] {len(ds)} images')
 
         loader = DataLoader(ds, batch_size=config['batch_size'],
                             shuffle=False, num_workers=4, pin_memory=True)
 
-        # Resolve fold placeholder in checkpoint path
+        # Resolve checkpoint: HuggingFace model was already loaded above;
+        # otherwise resolve any {fold} placeholder and load from disk.
         checkpoint = config['checkpoint']
-        if dataset_label == 'lamem' and fold != 'all_lamem' and '{fold}' in checkpoint:
-            checkpoint = checkpoint.replace('{fold}', str(fold))
-        elif fold == 'all_lamem' and '{fold}' in checkpoint:
-            raise ValueError(
-                '--fold all_lamem requires an explicit --checkpoint path '
-                '(the {fold} placeholder cannot be resolved for all_lamem).'
-            )
-
-        model = _build_model(config)
-
-        state_dict = torch.load(checkpoint, map_location='cpu')
-        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-
-        # Remap legacy fc1/fc2/fc3 keys (old MLP class) to mlp_head Sequential indices.
-        # Only applies to clip_hba_mem and clip_frozen_mlp checkpoints.
-        if model_type in ('clip_hba_mem', 'clip_frozen_mlp'):
-            _fc_to_idx = {'fc1': 'mlp_head.0', 'fc2': 'mlp_head.3', 'fc3': 'mlp_head.6'}
-            state_dict = {
-                (_fc_to_idx[parts[0]] + '.' + '.'.join(parts[1:])
-                 if (parts := k.split('.'))[0] in _fc_to_idx else k): v
-                for k, v in state_dict.items()
-            }
-
-        if model_type in ('clip_frozen_mlp', 'perceptclip'):
-            model.load_state_dict(state_dict, strict=False)
+        if _hf_model is not None:
+            model = _hf_model
+            checkpoint = 'huggingface'
         else:
+            if dataset_label == 'lamem' and fold != 'all_lamem' and '{fold}' in checkpoint:
+                checkpoint = checkpoint.replace('{fold}', str(fold))
+            elif fold == 'all_lamem' and '{fold}' in checkpoint:
+                raise ValueError(
+                    '--fold all_lamem requires an explicit --checkpoint path '
+                    '(the {fold} placeholder cannot be resolved for all_lamem).'
+                )
+
+            model = _build_model(config)
+
+            state_dict = torch.load(checkpoint, map_location='cpu')
+            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+
+            # Remap legacy fc1/fc2/fc3 keys (old MLP class) to mlp_head Sequential indices.
+            # Only applies to clip_hba_mem and clip_frozen_mlp checkpoints.
+            if model_type in ('clip_hba_mem', 'clip_frozen_mlp'):
+                _fc_to_idx = {'fc1': 'mlp_head.0', 'fc2': 'mlp_head.3', 'fc3': 'mlp_head.6'}
+                state_dict = {
+                    (_fc_to_idx[parts[0]] + '.' + '.'.join(parts[1:])
+                     if (parts := k.split('.'))[0] in _fc_to_idx else k): v
+                    for k, v in state_dict.items()
+                }
+
             model.load_state_dict(state_dict, strict=False)
-        print(f'[Model] Loaded {model_type} checkpoint: {checkpoint}')
+            print(f'[Model] Loaded {model_type} checkpoint: {checkpoint}')
 
         device = torch.device(config['device'])
         model.to(device)
@@ -261,13 +373,13 @@ def main():
                         help='Root data directory (replaces the ./Data prefix). '
                              'Also settable via DATA_DIR env var.')
     parser.add_argument('--dataset', required=True,
-                        choices=['lamem', 'things', 'memcat'],
+                        choices=['lamem', 'things', 'memcat', 'combined_lamem_memcat'],
                         help='Dataset to run inference on.')
     parser.add_argument('--fold', default='1',
-                        help='LaMem fold: 1-5, "all" (all 5 test folds), or "all_lamem" '
-                             '(all 58,741 images from all_lamem.csv). '
-                             '"all_lamem" requires an explicit --checkpoint path. '
-                             'Ignored for non-LaMem datasets.')
+                        help='Fold number or special token. '
+                             'lamem: 1-5, "all" (folds 1-5), "all_lamem" (all 58,741 images). '
+                             'combined_lamem_memcat: 1-10, "all" (folds 1-10). '
+                             'Ignored for things/memcat.')
     parser.add_argument('--things_img_dir', default=f'{_data_dir_default}/Things1854',
                         help='Directory containing THINGS images (for --dataset things).')
 
@@ -276,7 +388,13 @@ def main():
                         help='Model architecture to use for inference.')
     parser.add_argument('--checkpoint', default='./models/clip_hba_mem_fold{fold}.pth',
                         help='Path to trained model checkpoint. Use {fold} as placeholder '
-                             'for LaMem fold number.')
+                             'for LaMem fold number. '
+                             'Pass "huggingface" to download PerceptCLIP/PerceptCLIP_Memorability '
+                             'automatically (requires --model_type perceptclip).')
+    parser.add_argument('--hf_cache_dir', default=None,
+                        help='Local directory for HuggingFace model cache '
+                             '(used when --checkpoint huggingface). '
+                             'Defaults to ~/.cache/huggingface/hub.')
 
     # clip_hba_mem-only backbone args (ignored for clip_frozen_mlp / perceptclip)
     parser.add_argument('--backbone_checkpoint',
@@ -313,6 +431,11 @@ def main():
             folds = ['all_lamem']
         else:
             folds = [int(args.fold)]
+    elif args.dataset == 'combined_lamem_memcat':
+        if args.fold == 'all':
+            folds = list(range(1, 11))
+        else:
+            folds = [int(args.fold)]
     else:
         folds = [None]
 
@@ -323,6 +446,7 @@ def main():
         'things_img_dir': args.things_img_dir,
         'model_type': args.model_type,
         'checkpoint': args.checkpoint,
+        'hf_cache_dir': args.hf_cache_dir,
         'backbone_checkpoint': args.backbone_checkpoint,
         'backbone': args.backbone,
         'vision_layers': args.vision_layers,
