@@ -478,6 +478,7 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
     history_fields = ['epoch', 'train_loss', 'val_loss', 'spearman_rho', 'pred_std']
     if checkpoint_path is not None:
         history_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv'
+        os.makedirs(os.path.dirname(history_path), exist_ok=True)
         history_file = open(history_path, 'w', newline='')
         history_writer = csv.DictWriter(history_file, fieldnames=history_fields)
         history_writer.writeheader()

@@ -139,11 +139,13 @@ def build_config(
     # correct embedding file: {model_type}_fold{fold}_{split}.pt
     model_type = f'clip_hba_meg_mem_tp{tp}'
 
+    output_dir = args.output_dir
+
     checkpoint_path = (
-        f'./models/clip_hba_meg_mem_final/tp{tp}/'
+        f'{output_dir}/models/clip_hba_meg_mem_final/tp{tp}/'
         f'clip_hba_meg_mem_tp{tp}_final'
     )
-    log_path = f'./logs/meg_mem_final/meg_mem_tp{tp}_fold{fold}.log'
+    log_path = f'{output_dir}/logs/meg_mem_final/meg_mem_tp{tp}_fold{fold}.log'
 
     return {
         'model_type':    model_type,
@@ -157,7 +159,7 @@ def build_config(
         'test_csv':  test_csv,
         'img_root':        img_root,
         'memcat_meta_csv': memcat_meta_csv,
-        'preds_dir': './preds/meg_mem_final/',
+        'preds_dir': f'{output_dir}/preds/meg_mem_final/',
 
         # Precomputed MEG embeddings
         'embeddings_dir': embeddings_dir,
@@ -346,9 +348,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        '--output_dir',
+        default='.',
+        help='Base directory for all outputs (models, preds, logs, results).',
+    )
+    parser.add_argument(
         '--summary_dir',
-        default='./results',
-        help='Directory to write the per-timepoint summary CSV.',
+        default=None,
+        help='Directory to write the per-timepoint summary CSV. '
+             'Defaults to <output_dir>/results.',
     )
     args = parser.parse_args()
 
@@ -387,6 +395,7 @@ def main() -> None:
     print(f'  Epochs     : {args.epochs}  (patience={args.early_stopping_patience})')
     print(f'  CSV        : {csv_path}')
     print(f'  Data dir   : {args.data_dir}')
+    print(f'  Output dir : {args.output_dir}')
     print(f'  CUDA       : {args.cuda}  (device: {device})')
     print(f'  Seed       : {args.seed}')
     print(f'{"="*60}\n')
@@ -445,7 +454,7 @@ def main() -> None:
     # Aggregate and write summary
     # ------------------------------------------------------------------
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    summary_dir = pathlib.Path(args.summary_dir)
+    summary_dir = pathlib.Path(args.summary_dir or f'{args.output_dir}/results')
     summary_dir.mkdir(parents=True, exist_ok=True)
     summary_path = summary_dir / f'meg_mem_final_summary_{timestamp}.csv'
 
