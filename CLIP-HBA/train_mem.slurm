@@ -54,7 +54,7 @@ echo "=========================================="
 # Dataset to train on. Options:
 #   - lamem
 #   - combined_lamem_memcat
-export TRAINING_DATA="lamem"
+export TRAINING_DATA="combined_lamem_memcat"
 
 # Model type for memorability training. Options:
 #   - clip_hba_mem
@@ -90,7 +90,7 @@ fi
 echo "=========================================="
 
 # --- Train all folds sequentially --------------------------------------------
-for FOLD in 2 3; do
+for FOLD in 1 2 3 4 5 6 7 8 9 10; do
     echo ""
     echo "=========================================="
     echo "Starting fold ${FOLD} at $(date)"

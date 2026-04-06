@@ -55,14 +55,14 @@ def main():
         'cuda': int(os.environ.get('CUDA_DEVICE', 0)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
         # --- MLP head ---
-        'hidden_dims':   (512, 256),
-        'dropout_rate':  0.585585,
+        'hidden_dims':   (256, 128),
+        'dropout_rate':  0.4280261676059678,
 
         # --- Training ---
         'epochs':                   300,
-        'batch_size':               128,
-        'lr':                       3.8e-5,
-        'weight_decay':             5.36e-4,
+        'batch_size':               64,
+        'lr':                       2.060924941320234e-05,
+        'weight_decay':             0.07556810141274425,
         'early_stopping_patience':  20,
         'checkpoint_path':          './models/clip_hba_mem',
         'random_seed':              1,
