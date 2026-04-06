@@ -26,7 +26,7 @@ def main():
                          f"Choose 'lamem' or 'combined_lamem_memcat'.")
 
     config = {
-        'model_type':    'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+        'model_type':    'clip_frozen_mlp',  # 'clip_hba_mem' | 'clip_frozen_mlp' | 'perceptclip'
         'training_data': training_data,
 
         # --- Data ---
@@ -55,16 +55,17 @@ def main():
         'cuda': int(os.environ.get('CUDA_DEVICE', 0)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
         # --- MLP head ---
-        'hidden_dims':   (256, 128),
-        'dropout_rate':  0.4280261676059678,
+        'hidden_dims':   (512, 256),
+        'dropout_rate':  0.5368288006192632,
 
         # --- Training ---
         'epochs':                   300,
-        'batch_size':               64,
-        'lr':                       2.060924941320234e-05,
-        'weight_decay':             0.07556810141274425,
+        'batch_size':               32,
+        'lr':                       1.230330642343937e-05,
+        'weight_decay':             0.0706470650894558,
         'early_stopping_patience':  20,
-        'checkpoint_path':          './models/clip_hba_mem',
+        'checkpoint_path':          './models/clip_frozen_mlp',
+        'save_checkpoint':          True,
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }

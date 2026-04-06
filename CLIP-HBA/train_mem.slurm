@@ -59,7 +59,7 @@ export TRAINING_DATA="combined_lamem_memcat"
 # Model type for memorability training. Options:
 #   - clip_hba_mem
 #   - perceptclip
-export MODEL_TYPE="clip_hba_mem"
+export MODEL_TYPE="clip_frozen_mlp"
 
 # =============================================================================
 # Copy image data to local /tmp once; all folds read from the same copy.
