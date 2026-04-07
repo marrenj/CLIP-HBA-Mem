@@ -234,6 +234,67 @@ def _load_perceptclip_hf(hf_cache_dir: 'str | None' = None) -> nn.Module:
     return model
 
 
+def _resolve_backbone_checkpoint(
+    explicit: 'str | None',
+    checkpoint_path: str,
+    data_dir: str,
+) -> str:
+    """Return the backbone checkpoint path using a 3-level fallback.
+
+    Priority:
+      1. ``explicit`` — value passed via ``--backbone_checkpoint`` CLI arg.
+      2. Metadata embedded inside the model checkpoint (new-format checkpoints
+         saved as a dict with a ``'backbone_checkpoint'`` key).
+      3. ``<data_dir>/lamem/epoch97_dora_params.pth`` derived from ``--data_dir``.
+
+    Args:
+        explicit: Value of ``--backbone_checkpoint`` (``None`` if not supplied).
+        checkpoint_path: Path to the trained model ``.pth`` file (may contain
+            ``{fold}`` placeholder; the peek is skipped if the path is not
+            resolvable or does not exist).
+        data_dir: Value of ``--data_dir``.
+
+    Returns:
+        Resolved backbone checkpoint path string.
+
+    Raises:
+        FileNotFoundError: If no backbone checkpoint can be found via any level.
+    """
+    from pathlib import Path
+
+    # Priority 1 — explicit CLI arg
+    if explicit is not None:
+        return explicit
+
+    # Priority 2 — peek inside the model checkpoint for embedded metadata
+    # (only if the path doesn't contain an unresolved {fold} placeholder and
+    # the file exists)
+    if '{fold}' not in checkpoint_path and os.path.isfile(checkpoint_path):
+        try:
+            raw = torch.load(checkpoint_path, map_location='cpu')
+            if isinstance(raw, dict) and 'backbone_checkpoint' in raw:
+                embedded = raw['backbone_checkpoint']
+                if embedded:
+                    print(f'[backbone_checkpoint] Resolved from checkpoint metadata: {embedded}')
+                    return embedded
+        except Exception:
+            pass  # Corrupt / unreadable checkpoint — fall through to level 3
+
+    # Priority 3 — derive from --data_dir (mirrors training default)
+    fallback = str(Path(data_dir) / 'lamem' / 'epoch97_dora_params.pth')
+    if os.path.isfile(fallback):
+        print(f'[backbone_checkpoint] Resolved from --data_dir fallback: {fallback}')
+        return fallback
+
+    raise FileNotFoundError(
+        f'Could not resolve the backbone checkpoint. Tried:\n'
+        f'  (1) --backbone_checkpoint CLI arg      : not provided\n'
+        f'  (2) model checkpoint metadata          : not found or not readable\n'
+        f'  (3) --data_dir fallback                : {fallback}\n'
+        f'Pass --backbone_checkpoint /path/to/epoch97_dora_params.pth explicitly.'
+    )
+
+
 def run_inference(config):
     seed_everything(config['random_seed'])
 
@@ -290,9 +351,24 @@ def run_inference(config):
                     '(the {fold} placeholder cannot be resolved for all_lamem).'
                 )
 
+            # Load the raw checkpoint — handle both formats:
+            #   Old format: bare state_dict (OrderedDict of tensors)
+            #   New format: dict with 'state_dict' key + optional metadata
+            raw_ckpt = torch.load(checkpoint, map_location='cpu')
+            is_new_format = isinstance(raw_ckpt, dict) and 'state_dict' in raw_ckpt
+
+            # If backbone_checkpoint wasn't resolved in main() (e.g. {fold} placeholder
+            # prevented an early peek), try to resolve it from checkpoint metadata now.
+            if model_type == 'clip_hba_mem' and config.get('backbone_checkpoint') is None:
+                config['backbone_checkpoint'] = _resolve_backbone_checkpoint(
+                    explicit=None,
+                    checkpoint_path=checkpoint,
+                    data_dir=config.get('data_dir', './Data'),
+                )
+
             model = _build_model(config)
 
-            state_dict = torch.load(checkpoint, map_location='cpu')
+            state_dict = raw_ckpt['state_dict'] if is_new_format else raw_ckpt
             state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 
             # Remap legacy fc1/fc2/fc3 keys (old MLP class) to mlp_head Sequential indices.
@@ -398,9 +474,12 @@ def main():
 
     # clip_hba_mem-only backbone args (ignored for clip_frozen_mlp / perceptclip)
     parser.add_argument('--backbone_checkpoint',
-                        default=f'{_data_dir_default}/lamem/epoch97_dora_params.pth',
+                        default=None,
                         help='Path to frozen CLIP-HBA backbone weights '
-                             '(clip_hba_mem only; ignored for other model types).')
+                             '(clip_hba_mem only; ignored for other model types). '
+                             'If omitted, resolved automatically from the model checkpoint '
+                             'metadata (new-format checkpoints) or from '
+                             '--data_dir/lamem/epoch97_dora_params.pth as a fallback.')
     parser.add_argument('--backbone', default='ViT-L/14',
                         help='CLIP backbone name (clip_hba_mem only).')
     parser.add_argument('--vision_layers', type=int, default=2,
@@ -422,6 +501,14 @@ def main():
     parser.add_argument('--seed', type=int, default=1)
 
     args = parser.parse_args()
+
+    # Resolve backbone_checkpoint (only needed for clip_hba_mem)
+    if args.model_type == 'clip_hba_mem' and args.backbone_checkpoint is None:
+        args.backbone_checkpoint = _resolve_backbone_checkpoint(
+            explicit=None,
+            checkpoint_path=args.checkpoint,
+            data_dir=args.data_dir,
+        )
 
     # Resolve folds
     if args.dataset == 'lamem':

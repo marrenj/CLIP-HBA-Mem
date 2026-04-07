@@ -461,7 +461,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
                     checkpoint_path='clip_hba_mem.pth',
                     test_loader=None,
                     fold=1, preds_dir=None, run_timestamp=None,
-                    save_checkpoint=True):
+                    save_checkpoint=True,
+                    checkpoint_meta: dict = None):
     """Train model and return the Spearman ρ recorded at the best-loss checkpoint."""
     run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     if checkpoint_path is not None:
@@ -542,7 +543,10 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
             if save_checkpoint and checkpoint_path is not None:
                 chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
                 os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
-                torch.save(model.state_dict(), chk_path)
+                save_payload = {'state_dict': model.state_dict(), 'epoch': epoch + 1}
+                if checkpoint_meta:
+                    save_payload.update(checkpoint_meta)
+                torch.save(save_payload, chk_path)
                 print(f'  -> Checkpoint saved (epoch {epoch+1})')
         else:
             epochs_no_improve += 1
@@ -781,6 +785,17 @@ def _run_mem_training_impl(config, run_timestamp):
         print(f'  {key}: {value}')
     print(f'\nTrainable parameters: {count_trainable_parameters(model):,}\n')
 
+    _ckpt_meta = {
+        'backbone_checkpoint': config.get('backbone_checkpoint'),
+        'backbone': config.get('backbone', 'ViT-L/14'),
+        'model_type': config.get('model_type', 'clip_hba_mem'),
+        'vision_layers': config.get('vision_layers'),
+        'transformer_layers': config.get('transformer_layers'),
+        'rank': config.get('rank'),
+        'hidden_dims': config.get('hidden_dims'),
+        'dropout_rate': config.get('dropout_rate'),
+    }
+
     best_rho = train_mem_model(
         model, train_loader, val_loader, device,
         optimizer, config['criterion'],
@@ -792,5 +807,6 @@ def _run_mem_training_impl(config, run_timestamp):
         preds_dir=config.get('preds_dir', None),
         run_timestamp=run_timestamp,
         save_checkpoint=config.get('save_checkpoint', False),
+        checkpoint_meta=_ckpt_meta,
     )
     return best_rho

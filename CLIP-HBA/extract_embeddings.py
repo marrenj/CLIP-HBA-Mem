@@ -299,8 +299,9 @@ def main() -> None:
     )
     parser.add_argument(
         '--backbone_checkpoint',
-        default=f'{_data_dir_default}/lamem/epoch97_dora_params.pth',
-        help='CLIP-HBA checkpoint path (only used for clip_hba_mem).',
+        default=None,
+        help='CLIP-HBA checkpoint path (only used for clip_hba_mem). '
+             'If omitted, defaults to <data_dir>/lamem/epoch97_dora_params.pth.',
     )
     parser.add_argument(
         '--batch_size',
@@ -328,6 +329,14 @@ def main() -> None:
     )
     args = parser.parse_args()
     data_dir = args.data_dir
+
+    # Resolve backbone_checkpoint: fall back to <data_dir>/lamem/epoch97_dora_params.pth
+    # when not provided (mirrors the path used during training).
+    if args.backbone_checkpoint is None:
+        import pathlib
+        args.backbone_checkpoint = str(
+            pathlib.Path(data_dir) / 'lamem' / 'epoch97_dora_params.pth'
+        )
 
     seed_everything(args.seed)
 
