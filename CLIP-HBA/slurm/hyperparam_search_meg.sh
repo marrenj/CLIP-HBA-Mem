@@ -1,12 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# SLURM job array — Bayesian hyperparameter search for CLIP-HBA-MEG MLP heads
+# SLURM job — Bayesian hyperparameter search for CLIP-HBA-MEG MLP heads
 #
-# Runs one Optuna TPE search per MEG timepoint for the 36 NEW timepoints at
-# 25 ms resolution that are not already covered by the existing results in
-# meg_hyperparam_search_results.csv (which has 50–1300 ms at coarser spacing).
+# Runs all 36 new timepoint searches in PARALLEL on a single GPU.
+# Each search is launched as a background process; they share GPU time via
+# CUDA's built-in time-multiplexing.  Since each individual search uses only
+# a small fraction of the A100's compute and memory, this saturates the GPU
+# far more efficiently than the job-array approach (one task per GPU).
 #
-# New timepoints (36 total, indices 0–35):
+# New timepoints (36 total, already-completed timepoints skipped):
 #   0, 25, 75, 125, 175, 225, 275, 325, 375, 425, 450, 475,
 #   525, 550, 575, 625, 650, 675, 725, 750, 775, 825, 850, 875,
 #   925, 950, 975, 1025, 1050, 1075, 1125, 1150, 1175, 1225, 1250, 1275
@@ -17,56 +19,68 @@
 #
 # Resource notes
 # --------------
-# This is a lightweight workload: tiny MLP (66-dim input), in-memory embeddings
-# (num_workers=0), Optuna TPE sampler (single-threaded).
-#   GPU:    1 A100 — barely stressed but keeps jobs on the same partition
-#   CPUs:   4      — Optuna + Python overhead; extra cores go unused
-#   Memory: 16 G   — all 66-dim embeddings for 10 folds fit in ~400 MB
-#   Time:   24 h   — 50 trials × 10 folds × ~2-3 min/fold ≈ 17–25 h
+# GPU:    1 A100 (40 GB) — shared across all N_PARALLEL processes via CUDA
+#         time-multiplexing.  Each process uses ~200–500 MB VRAM (tiny MLP +
+#         66-dim in-memory embeddings), so 36 parallel processes ≈ 7–18 GB
+#         total VRAM, well within the 40 GB limit.
+# CPUs:   16 — shared across all parallel Python/Optuna processes; each
+#         individual search is single-threaded so 16 cores handles ~36
+#         concurrent processes comfortably.
+# Memory: 32 G — 36 processes × ~200–400 MB each ≈ 7–14 GB; 32 G is safe.
+# Time:   36:00:00 — all 36 searches run simultaneously, each taking ~17–25 h;
+#         36 h provides headroom for variance.
+#
+# Tuning N_PARALLEL
+# -----------------
+# N_PARALLEL controls how many searches run simultaneously.  Start conservatively
+# and increase if GPU memory allows.  Recommended values:
+#   N_PARALLEL=9   →  4 batches × ~24 h ≈ 4 days   (very safe)
+#   N_PARALLEL=12  →  3 batches × ~24 h ≈ 3 days   (safe)
+#   N_PARALLEL=18  →  2 batches × ~24 h ≈ 2 days   (comfortable for A100)
+#   N_PARALLEL=36  →  1 batch   × ~24 h ≈ 1 day    (ideal; fits A100 memory)
+# If you hit GPU OOM errors, reduce N_PARALLEL.
 #
 # Usage
 # -----
 #   cd /panfs/accrepfs.vampire/home/jenkm22/CLIP-HBA-Mem/CLIP-HBA
-#
-#   # Edit %N to match available GPU count, then:
 #   sbatch slurm/hyperparam_search_meg.sh
 #
-#   # Or override %N at submission time:
-#   sbatch --array=0-35%1 slurm/hyperparam_search_meg.sh   # 1 GPU
-#   sbatch --array=0-35%2 slurm/hyperparam_search_meg.sh   # 2 GPUs
-#   sbatch --array=0-35%4 slurm/hyperparam_search_meg.sh   # 4 GPUs
-#
-#   # Resume a failed/preempted task (e.g. index 7 = tp=425 ms):
-#   sbatch --array=7 slurm/hyperparam_search_meg.sh
+# To override N_PARALLEL without editing:
+#   N_PARALLEL=12 sbatch slurm/hyperparam_search_meg.sh
 #
 # Monitoring
 # ----------
 #   squeue -u $USER
-#   scancel <array_job_id>
-#   scancel <array_job_id>_3
-#   tail -f ./logs/hyperparam_search_meg/slurm_<jobid>_<idx>.out
+#   tail -f ./logs/hyperparam_search_meg/slurm_<jobid>.out     # top-level log
+#   tail -f ./logs/hyperparam_search_meg/tp<TP>_<jobid>.log    # per-timepoint log
 # =============================================================================
 
 #SBATCH --job-name=meg_hpsearch
-#SBATCH --output=./logs/hyperparam_search_meg/slurm_%A_%a.out
-#SBATCH --error=./logs/hyperparam_search_meg/slurm_%A_%a.err
+#SBATCH --output=./logs/hyperparam_search_meg/slurm_%j.out
+#SBATCH --error=./logs/hyperparam_search_meg/slurm_%j.err
 #SBATCH --account=dsi_dgx_iacc
 #SBATCH --partition=interactive_gpu
 #SBATCH --qos=dgx_iacc
 #SBATCH --gres=gpu:nvidia_a100-sxm4-40gb:1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --time=24:00:00
-#SBATCH --array=0-35%2        # 36 new timepoints (indices 0–35); %2 = max 2 concurrent
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
+#SBATCH --time=36:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=marren.jenkins.1@vanderbilt.edu
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Timepoint lookup — 25 ms resolution, skipping already-completed timepoints
+# How many searches to run simultaneously on this one GPU.
+# Override at submission time: N_PARALLEL=12 sbatch slurm/hyperparam_search_meg.sh
+# See "Tuning N_PARALLEL" notes above for guidance.
+# ---------------------------------------------------------------------------
+N_PARALLEL=${N_PARALLEL:-36}
+
+# ---------------------------------------------------------------------------
+# Timepoints — 25 ms resolution, skipping already-completed timepoints
 # (50, 100, 150, 200, 250, 300, 350, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300)
 # ---------------------------------------------------------------------------
 TIMEPOINTS=(
@@ -75,7 +89,6 @@ TIMEPOINTS=(
     725   750   775   825   850   875   925   950   975
    1025  1050  1075  1125  1150  1175  1225  1250  1275
 )
-TP=${TIMEPOINTS[$SLURM_ARRAY_TASK_ID]}
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -84,37 +97,66 @@ module load python/3.11.5
 source ~/envs/clip_hba/bin/activate
 
 cd /panfs/accrepfs.vampire/home/jenkm22/CLIP-HBA-Mem/CLIP-HBA
-
-# Log dir must exist before SLURM writes to it
 mkdir -p ./logs/hyperparam_search_meg
 
-# The search script reads CUDA_DEVICE from the environment (defaults to 1).
-# Each SLURM task gets an exclusive GPU so cuda:0 is always correct here.
+# Each task gets exclusive GPU 0 within this job.
 export CUDA_DEVICE=0
 
 # ---------------------------------------------------------------------------
 # Job info
 # ---------------------------------------------------------------------------
 echo "=========================================="
-echo "Array job ID : $SLURM_ARRAY_JOB_ID"
-echo "Task index   : $SLURM_ARRAY_TASK_ID"
-echo "Timepoint    : ${TP} ms"
+echo "Job ID       : $SLURM_JOB_ID"
 echo "Node         : $SLURMD_NODENAME"
 echo "GPU(s)       : $CUDA_VISIBLE_DEVICES"
+echo "N_PARALLEL   : ${N_PARALLEL}"
+echo "Timepoints   : ${#TIMEPOINTS[@]} total"
 echo "Start time   : $(date)"
 echo "Working dir  : $(pwd)"
 echo "=========================================="
 
 # ---------------------------------------------------------------------------
-# Hyperparameter search — 50 Optuna TPE trials, all 10 folds per trial
-# Outputs written to ./sweep_meg_out/<timestamp>/tp<TP>/
+# Launch all searches — N_PARALLEL at a time
+#
+# Each timepoint's search runs as a background process writing its own log.
+# When a batch of N_PARALLEL processes is full, we wait for all of them to
+# finish before launching the next batch.
 # ---------------------------------------------------------------------------
-python train_mem_meg_hyperparam_search.py \
-    --timepoint_ms "${TP}" \
-    --n-trials 50
+batch_pids=()
+
+for i in "${!TIMEPOINTS[@]}"; do
+    TP=${TIMEPOINTS[$i]}
+
+    echo "[$(date '+%H:%M:%S')] Launching tp=${TP} ms (index ${i})"
+
+    python train_mem_meg_hyperparam_search.py \
+        --timepoint_ms "${TP}" \
+        --n-trials 50 \
+        > "./logs/hyperparam_search_meg/tp${TP}_${SLURM_JOB_ID}.log" 2>&1 &
+
+    batch_pids+=($!)
+
+    # When the batch is full, wait for all processes in it to finish.
+    if [ "${#batch_pids[@]}" -ge "${N_PARALLEL}" ]; then
+        echo "[$(date '+%H:%M:%S')] Batch of ${N_PARALLEL} launched — waiting..."
+        for pid in "${batch_pids[@]}"; do
+            wait "$pid"
+        done
+        echo "[$(date '+%H:%M:%S')] Batch complete."
+        batch_pids=()
+    fi
+done
+
+# Wait for any remaining processes in an incomplete final batch.
+if [ "${#batch_pids[@]}" -gt 0 ]; then
+    echo "[$(date '+%H:%M:%S')] Waiting for final batch (${#batch_pids[@]} processes)..."
+    for pid in "${batch_pids[@]}"; do
+        wait "$pid"
+    done
+fi
 
 # ---------------------------------------------------------------------------
 echo "=========================================="
-echo "Finished tp=${TP} ms"
+echo "All ${#TIMEPOINTS[@]} hyperparameter searches complete."
 echo "End time : $(date)"
 echo "=========================================="
