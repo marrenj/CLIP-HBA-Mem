@@ -37,7 +37,8 @@ Three model variants are supported:
 
 | Model | Backbone | Adaptation | Description |
 |-------|----------|------------|-------------|
-| `clip_hba_mem` | CLIP-HBA-Behavior | DoRA (frozen) | MLP head on brain-aligned features |
+| `clip_hba_mem` | CLIP-HBA-Behavior | DoRA (frozen) | MLP head on behavior-aligned features |
+| `MEGMem` | CLIP-HBA-MEG | DoRA + MEG-specific parameters (frozen) | MLP head on brain-aligned features at each timepoint |
 | `clip_frozen_mlp` | Vanilla CLIP ViT-L/14 | None (frozen) | Baseline: MLP head on standard CLIP features |
 | `perceptclip` | CLIP ViT-L/14 | LoRA | LoRA-adapted CLIP + MLP head ([HuggingFace](https://huggingface.co/PerceptCLIP/PerceptCLIP_Memorability)) |
 
@@ -98,7 +99,7 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install -r requirements.txt
 ```
 
-Download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs).
+Download the pretrained CLIP-HBA model weights from [INSERT LINK].
 
 ## Usage
 
@@ -189,16 +190,16 @@ All models use 5-fold cross-validation on LaMem and 10-fold on the combined LaMe
 
 | Model | Dataset | Spearman ρ (mean ± std) |
 |-------|---------|------------------------|
-| CLIP-HBA-Mem (`clip_hba_mem`) | LaMem (5-fold) | ~0.65 ± 0.01 |
-| Frozen CLIP + MLP (`clip_frozen_mlp`) | LaMem (5-fold) | ~0.63 ± 0.01 |
-| CLIP-HBA-Mem | LaMem + MemCat (10-fold) | ~0.64 ± 0.01 |
+| CLIP-HBA-Mem (`clip_hba_mem`) | LaMem (5-fold) | [INSERT] |
+| Frozen CLIP + MLP (`clip_frozen_mlp`) | LaMem (5-fold) | [INSERT] |
+| CLIP-HBA-Mem | LaMem + MemCat (10-fold) | [INSERT] |
 
 > **Note:** Exact values depend on the random seed and hardware. Results above are representative ranges from training on a single NVIDIA A100 (40 GB). To reproduce, run `sbatch CLIP-HBA/train_mem.slurm` with the default config.
 
 ### Pre-trained Weights
 
 Backbone checkpoint (`epoch97_dora_params.pth`) and trained MLP heads are available at:  
-[Google Drive — model weights](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs)
+[INSERT LINK]
 
 Place downloaded `.pth` files under `CLIP-HBA/Data/` and update the `backbone_checkpoint` path in `train_mem.py` accordingly.
 
