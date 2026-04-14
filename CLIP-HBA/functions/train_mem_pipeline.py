@@ -386,7 +386,7 @@ class CLIPHBAMem(nn.Module):
         state_dict = torch.load(backbone_checkpoint, map_location='cpu')
         # Strip DataParallel 'module.' prefix if present
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-        self.backbone.load_state_dict(state_dict, strict=True)
+        self.backbone.load_state_dict(state_dict, strict=False)
         print(f'[Backbone] Loaded {len(state_dict)} keys from {backbone_checkpoint}')
 
         for p in self.backbone.parameters():

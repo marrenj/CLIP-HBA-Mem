@@ -170,5 +170,12 @@ mmedit/.mim
 /CLIP-HBA/sweep_out/
 /CLIP-HBA/sweep_meg_out/
 /CLIP-HBA/sweep_meg_out/*
-/CLIP-HBA/sweep_meg_out/
-/CLIP-HBA/sweep_meg_out/*
+
+# Large output directories
+/CLIP-HBA/CLIP-HBA-Mem_final/
+/CLIP-HBA/CLIP-HBA-Mem_final/**
+/CLIP-HBA/vanilla-CLIP_final/
+/CLIP-HBA/vanilla-CLIP_final/**
+
+# Generated PDFs
+CLIP-HBA/figures/spose_interpretability.pdf

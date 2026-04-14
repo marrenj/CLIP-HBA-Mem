@@ -26,7 +26,7 @@ def main():
                          f"Choose 'lamem' or 'combined_lamem_memcat'.")
 
     config = {
-        'model_type':    'clip_hba_mem',  # 'clip_hba_mem' | 'perceptclip'
+        'model_type':    'clip_frozen_mlp',  # 'clip_hba_mem' | 'perceptclip' | 'clip_frozen_mlp'
         'training_data': training_data,
 
         # --- Data ---
@@ -38,11 +38,12 @@ def main():
         'memcat_meta_csv': memcat_meta_csv,
         'preds_dir': './preds/',
         'log_path':  './logs/mem.log',
+        'save_checkpoint': True,
 
         # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
         # Run extract_embeddings.slurm once to populate this directory, then
         # uncomment the line below to skip backbone inference during training.
-        # 'embeddings_dir': f'{data_dir}/lamem/embeddings/',
+        'embeddings_dir': "Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/combined_lamem_memcat/embeddings",
 
         # --- Backbone (frozen CLIP-HBA) ---
         'backbone_checkpoint': f'{data_dir}/lamem/epoch97_dora_params.pth',
@@ -54,17 +55,17 @@ def main():
         # --- Device ---
         'cuda': int(os.environ.get('CUDA_DEVICE', 0)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
 
-        # --- MLP head ---
-        'hidden_dims':   (512, 256),
-        'dropout_rate':  0.585585,
+        # --- MLP head --- 
+        'hidden_dims': (512, 256),
+        'dropout_rate': 0.5368288006192632,
 
         # --- Training ---
         'epochs':                   300,
-        'batch_size':               128,
-        'lr':                       3.8e-5,
-        'weight_decay':             5.36e-4,
         'early_stopping_patience':  20,
-        'checkpoint_path':          './models/clip_hba_mem',
+        'lr': 1.230330642343937e-05,
+        'weight_decay': 0.0706470650894558,
+        'batch_size': 32,
+        'checkpoint_path':          './models/clip_frozen_mlp',
         'random_seed':              1,
         'criterion':                nn.MSELoss(),
     }

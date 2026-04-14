@@ -1,0 +1,2 @@
+dataset,model_type,fold,n_images,spearman_rho,spearman_p,mse,pred_std,checkpoint
+things,clip_hba_mem,,26106,0.30558972588060845,0.0,0.010560175403952599,0.05944615975022316,./models/clip_hba_mem_fold4_20260406_015953.pth
