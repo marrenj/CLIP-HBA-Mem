@@ -1,4 +1,4 @@
-﻿"""Bayesian hyperparameter search for the memorability MLP head using Optuna.
+"""Bayesian hyperparameter search for the memorability MLP head using Optuna.
 
 Replaces the exhaustive grid search with Tree-structured Parzen Estimator (TPE),
 a Bayesian optimisation algorithm that builds a probabilistic model of the
@@ -33,9 +33,9 @@ Outputs
 """
 
 import argparse
+import ast
 import csv
 import datetime
-import ast
 import json
 import math
 import os
@@ -57,41 +57,41 @@ from functions.train_mem_pipeline import run_mem_training
 # ---------------------------------------------------------------------------
 # Dataset configuration — mirrors train_mem.py; set via TRAINING_DATA env var
 # ---------------------------------------------------------------------------
-TRAINING_DATA: str = os.environ.get('TRAINING_DATA', 'combined_lamem_memcat')  # 'lamem' | 'combined_lamem_memcat'
-_DATA_DIR: str = os.environ.get('DATA_DIR', './Data')
+TRAINING_DATA: str = os.environ.get(
+    "TRAINING_DATA", "combined_lamem_memcat"
+)  # 'lamem' | 'combined_lamem_memcat'
+_DATA_DIR: str = os.environ.get("DATA_DIR", "./Data")
 
-if TRAINING_DATA == 'lamem':
+if TRAINING_DATA == "lamem":
     N_FOLDS: int = 5
-    _IMG_ROOT: 'str | dict' = os.environ.get('LAMEM_IMG_ROOT', f'{_DATA_DIR}/lamem/images/')
-    _EMBEDDINGS_DIR: 'str | None' = f'{_DATA_DIR}/lamem/embeddings/'
-    _MEMCAT_META_CSV: 'str | None' = None
+    _IMG_ROOT: "str | dict" = os.environ.get("LAMEM_IMG_ROOT", f"{_DATA_DIR}/lamem/images/")
+    _EMBEDDINGS_DIR: "str | None" = f"{_DATA_DIR}/lamem/embeddings/"
+    _MEMCAT_META_CSV: "str | None" = None
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'{_DATA_DIR}/lamem/lamem_{split}_{fold}.csv'
+        return f"{_DATA_DIR}/lamem/lamem_{split}_{fold}.csv"
 
-elif TRAINING_DATA == 'combined_lamem_memcat':
+elif TRAINING_DATA == "combined_lamem_memcat":
     N_FOLDS: int = 10
-    _IMG_ROOT: 'str | dict' = {
-        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{_DATA_DIR}/lamem/images/'),
-        'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{_DATA_DIR}/memcat/images/'),
+    _IMG_ROOT: "str | dict" = {
+        "lamem": os.environ.get("LAMEM_IMG_ROOT", f"{_DATA_DIR}/lamem/images/"),
+        "memcat": os.environ.get("MEMCAT_IMG_ROOT", f"{_DATA_DIR}/memcat/images/"),
     }
-    _EMBEDDINGS_DIR: 'str | None' = (
-        os.environ.get('EMBEDDINGS_DIR') or
-        (f'{_DATA_DIR}/combined_lamem_memcat/embeddings/'
-         if os.path.isdir(f'{_DATA_DIR}/combined_lamem_memcat/embeddings/')
-         else None)
+    _EMBEDDINGS_DIR: "str | None" = os.environ.get("EMBEDDINGS_DIR") or (
+        f"{_DATA_DIR}/combined_lamem_memcat/embeddings/"
+        if os.path.isdir(f"{_DATA_DIR}/combined_lamem_memcat/embeddings/")
+        else None
     )
-    _MEMCAT_META_CSV: 'str | None' = os.environ.get(
-        'MEMCAT_META_CSV', f'{_DATA_DIR}/memcat/memcat_image_data.csv'
+    _MEMCAT_META_CSV: "str | None" = os.environ.get(
+        "MEMCAT_META_CSV", f"{_DATA_DIR}/memcat/memcat_image_data.csv"
     )
 
     def _csv_path(split: str, fold: int) -> str:
-        return f'{_DATA_DIR}/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv'
+        return f"{_DATA_DIR}/combined_lamem_memcat/lamem_memcat_{split}_split_{fold:02d}.csv"
 
 else:
     raise ValueError(
-        f"Unknown TRAINING_DATA: {TRAINING_DATA!r}. "
-        f"Choose 'lamem' or 'combined_lamem_memcat'."
+        f"Unknown TRAINING_DATA: {TRAINING_DATA!r}. Choose 'lamem' or 'combined_lamem_memcat'."
     )
 
 # ---------------------------------------------------------------------------
@@ -101,30 +101,26 @@ BASE_CONFIG = {
     # Set model_type to control which backbone is used for the sweep:
     #   'clip_hba_mem'    — HBA-tuned CLIP backbone (requires backbone_checkpoint)
     #   'clip_frozen_mlp' — vanilla openai/clip-vit-large-patch14
-    'model_type': 'clip_hba_mem',
-    'training_data': TRAINING_DATA,
-
+    "model_type": "clip_hba_mem",
+    "training_data": TRAINING_DATA,
     # fold/train_csv/val_csv/test_csv are injected per fold inside _objective
-    'img_root':        _IMG_ROOT,
-    'embeddings_dir':  _EMBEDDINGS_DIR,
-    'memcat_meta_csv': _MEMCAT_META_CSV,
-
+    "img_root": _IMG_ROOT,
+    "embeddings_dir": _EMBEDDINGS_DIR,
+    "memcat_meta_csv": _MEMCAT_META_CSV,
     # Backbone (frozen — these must match the checkpoint's DoRA config)
-    'backbone_checkpoint': f'{_DATA_DIR}/lamem/epoch97_dora_params.pth',
-    'backbone':            'ViT-L/14',
-    'vision_layers':       2,
-    'transformer_layers':  1,
-    'rank':                32,
-
+    "backbone_checkpoint": f"{_DATA_DIR}/lamem/epoch97_dora_params.pth",
+    "backbone": "ViT-L/14",
+    "vision_layers": 2,
+    "transformer_layers": 1,
+    "rank": 32,
     # Device: 0=cuda:0, 1=cuda:1, -1=DataParallel, 2=cpu
-    'cuda': 1,
-
+    "cuda": 1,
     # Fixed training settings for the sweep
-    'epochs':                  300,
-    'early_stopping_patience': 20,    # shorter than final training to speed up sweep
-    'train_fraction':          1.0,   # full training set — epochs are ~3 s with precomputed embeddings
-    'criterion':               nn.MSELoss(),
-    'random_seed':             42,
+    "epochs": 300,
+    "early_stopping_patience": 20,  # shorter than final training to speed up sweep
+    "train_fraction": 1.0,  # full training set — epochs are ~3 s with precomputed embeddings
+    "criterion": nn.MSELoss(),
+    "random_seed": 42,
 }
 
 
@@ -137,29 +133,35 @@ BASE_CONFIG = {
 # ---------------------------------------------------------------------------
 SEARCH_SPACE: dict = {
     # Architecture — categorical; same options as the original grid
-    'hidden_dims':  ['(512, 256)', '(256, 128)', '(512, 256, 128)', '(256,)'],
-
+    "hidden_dims": ["(512, 256)", "(256, 128)", "(512, 256, 128)", "(256,)"],
     # Regularisation — continuous uniform; wider than the original [0.3, 0.5]
-    'dropout_rate': (0.1, 0.7),
-
+    "dropout_rate": (0.1, 0.7),
     # Optimisation — log-uniform; covers the original [1e-5, 1e-4] range and beyond
-    'lr':           (1e-5, 5e-4),
-
+    "lr": (1e-5, 5e-4),
     # Regularisation — AdamW weight decay, log-uniform over a wide range
-    'weight_decay': (1e-5, 1e-1),
-
+    "weight_decay": (1e-5, 1e-1),
     # Batch size — categorical; extended to include 16 and 128
-    'batch_size':   [32, 64, 128, 256],
+    "batch_size": [32, 64, 128, 256],
 }
 
 N_TRIALS_DEFAULT: int = 50
 
 # New sweep directory (only used when not resuming)
-SWEEP_DIR: str = f'./sweep_out/{BASE_CONFIG["model_type"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+SWEEP_DIR: str = (
+    f"./sweep_out/{BASE_CONFIG['model_type']}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+)
 
 _CSV_FIELDS = [
-    'trial_id', 'hidden_dims', 'dropout_rate', 'lr', 'weight_decay', 'batch_size',
-    'mean_val_mse', 'std_val_mse', 'mean_val_rho', 'std_val_rho',
+    "trial_id",
+    "hidden_dims",
+    "dropout_rate",
+    "lr",
+    "weight_decay",
+    "batch_size",
+    "mean_val_mse",
+    "std_val_mse",
+    "mean_val_rho",
+    "std_val_rho",
 ]
 
 
@@ -176,8 +178,9 @@ def _sample_std(values: list) -> float:
 # Optuna objective
 # ---------------------------------------------------------------------------
 
+
 def _objective(
-    trial: 'optuna.Trial',
+    trial: "optuna.Trial",
     sweep_dir: str,
     results_csv: str,
     sweep_stdout,
@@ -204,36 +207,39 @@ def _objective(
         Exception: Re-raised after logging so Optuna marks the trial as FAILED.
     """
     # --- Sample hyperparameters ---
-    hidden_dims:  tuple = ast.literal_eval(
-        trial.suggest_categorical('hidden_dims', SEARCH_SPACE['hidden_dims'])
+    hidden_dims: tuple = ast.literal_eval(
+        trial.suggest_categorical("hidden_dims", SEARCH_SPACE["hidden_dims"])
     )
-    dropout_rate: float = trial.suggest_float('dropout_rate', *SEARCH_SPACE['dropout_rate'])
-    lr:           float = trial.suggest_float('lr', *SEARCH_SPACE['lr'], log=True)
-    weight_decay: float = trial.suggest_float('weight_decay', *SEARCH_SPACE['weight_decay'], log=True)
-    batch_size:   int   = trial.suggest_categorical('batch_size', SEARCH_SPACE['batch_size'])
+    dropout_rate: float = trial.suggest_float("dropout_rate", *SEARCH_SPACE["dropout_rate"])
+    lr: float = trial.suggest_float("lr", *SEARCH_SPACE["lr"], log=True)
+    weight_decay: float = trial.suggest_float(
+        "weight_decay", *SEARCH_SPACE["weight_decay"], log=True
+    )
+    batch_size: int = trial.suggest_categorical("batch_size", SEARCH_SPACE["batch_size"])
 
     trial_id = trial.number
-    run_dir  = os.path.join(sweep_dir, f'run_{trial_id:03d}')
+    run_dir = os.path.join(sweep_dir, f"run_{trial_id:03d}")
     os.makedirs(run_dir, exist_ok=True)
 
     sweep_stdout.write(
-        f'\n[Trial {trial_id}] '
-        f'hidden_dims={hidden_dims}  dropout={dropout_rate:.3f}'
-        f'  lr={lr:.2e}  wd={weight_decay:.2e}  batch_size={batch_size}\n'
+        f"\n[Trial {trial_id}] "
+        f"hidden_dims={hidden_dims}  dropout={dropout_rate:.3f}"
+        f"  lr={lr:.2e}  wd={weight_decay:.2e}  batch_size={batch_size}\n"
     )
     sweep_stdout.flush()
 
     # Save shared hyperparameters once (fold-specific paths are not included)
-    with open(os.path.join(run_dir, 'config.json'), 'w') as _f:
+    with open(os.path.join(run_dir, "config.json"), "w") as _f:
         json.dump(
             {
-                'hidden_dims':  str(hidden_dims),
-                'dropout_rate': dropout_rate,
-                'lr':           lr,
-                'weight_decay': weight_decay,
-                'batch_size':   batch_size,
+                "hidden_dims": str(hidden_dims),
+                "dropout_rate": dropout_rate,
+                "lr": lr,
+                "weight_decay": weight_decay,
+                "batch_size": batch_size,
             },
-            _f, indent=2,
+            _f,
+            indent=2,
         )
 
     # --- Train on all folds and collect per-fold metrics ---
@@ -242,55 +248,61 @@ def _objective(
 
     try:
         for fold in range(1, N_FOLDS + 1):
-            fold_dir = os.path.join(run_dir, f'fold_{fold}')
+            fold_dir = os.path.join(run_dir, f"fold_{fold}")
             os.makedirs(fold_dir, exist_ok=True)
 
             fold_config = {
                 **BASE_CONFIG,
-                'fold':            fold,
-                'train_csv':       _csv_path('train', fold),
-                'val_csv':         _csv_path('val',   fold),
-                'test_csv':        _csv_path('test',  fold),
-                'hidden_dims':     hidden_dims,
-                'dropout_rate':    dropout_rate,
-                'lr':              lr,
-                'weight_decay':    weight_decay,
-                'batch_size':      batch_size,
-                'log_path':        os.path.join(fold_dir, 'log.txt'),
-                'checkpoint_path': os.path.join(fold_dir, 'checkpoint'),
-                'save_checkpoint': False,
+                "fold": fold,
+                "train_csv": _csv_path("train", fold),
+                "val_csv": _csv_path("val", fold),
+                "test_csv": _csv_path("test", fold),
+                "hidden_dims": hidden_dims,
+                "dropout_rate": dropout_rate,
+                "lr": lr,
+                "weight_decay": weight_decay,
+                "batch_size": batch_size,
+                "log_path": os.path.join(fold_dir, "log.txt"),
+                "checkpoint_path": os.path.join(fold_dir, "checkpoint"),
+                "save_checkpoint": False,
             }
             fold_mse, fold_rho = run_mem_training(fold_config)
             fold_mses.append(fold_mse)
             fold_rhos.append(fold_rho)
 
-            sweep_stdout.write(
-                f'  fold {fold}/{N_FOLDS}: mse={fold_mse:.6f}  rho={fold_rho:.4f}\n'
-            )
+            sweep_stdout.write(f"  fold {fold}/{N_FOLDS}: mse={fold_mse:.6f}  rho={fold_rho:.4f}\n")
             sweep_stdout.flush()
 
     except Exception as exc:
-        sweep_stdout.write(f'  [ERROR] trial {trial_id} failed on fold {fold}: {exc}\n')
+        sweep_stdout.write(f"  [ERROR] trial {trial_id} failed on fold {fold}: {exc}\n")
         sweep_stdout.flush()
         raise  # Let Optuna mark this trial as FAILED
 
     mean_mse = sum(fold_mses) / N_FOLDS
-    std_mse  = _sample_std(fold_mses)
+    std_mse = _sample_std(fold_mses)
     mean_rho = sum(fold_rhos) / N_FOLDS
-    std_rho  = _sample_std(fold_rhos)
+    std_rho = _sample_std(fold_rhos)
 
     # Append aggregated result to incremental CSV
-    with open(results_csv, 'a', newline='') as f:
-        csv.writer(f).writerow([
-            trial_id, str(hidden_dims), f'{dropout_rate:.6f}',
-            f'{lr:.2e}', f'{weight_decay:.2e}', batch_size,
-            f'{mean_mse:.6f}', f'{std_mse:.6f}',
-            f'{mean_rho:.6f}', f'{std_rho:.6f}',
-        ])
+    with open(results_csv, "a", newline="") as f:
+        csv.writer(f).writerow(
+            [
+                trial_id,
+                str(hidden_dims),
+                f"{dropout_rate:.6f}",
+                f"{lr:.2e}",
+                f"{weight_decay:.2e}",
+                batch_size,
+                f"{mean_mse:.6f}",
+                f"{std_mse:.6f}",
+                f"{mean_rho:.6f}",
+                f"{std_rho:.6f}",
+            ]
+        )
 
     sweep_stdout.write(
-        f'  -> mean_val_mse = {mean_mse:.6f} ± {std_mse:.6f}'
-        f'  |  mean_val_rho = {mean_rho:.4f} ± {std_rho:.4f}\n'
+        f"  -> mean_val_mse = {mean_mse:.6f} ± {std_mse:.6f}"
+        f"  |  mean_val_rho = {mean_rho:.4f} ± {std_rho:.4f}\n"
     )
     sweep_stdout.flush()
 
@@ -300,6 +312,7 @@ def _objective(
 # ---------------------------------------------------------------------------
 # Main sweep entry point
 # ---------------------------------------------------------------------------
+
 
 def _write_sweep_config(sweep_dir: str, n_trials: int, resumed: bool) -> None:
     """Write (or update) sweep_config.json with metadata for this sweep run.
@@ -315,54 +328,53 @@ def _write_sweep_config(sweep_dir: str, n_trials: int, resumed: bool) -> None:
     """
     import subprocess
 
-    config_path = os.path.join(sweep_dir, 'sweep_config.json')
+    config_path = os.path.join(sweep_dir, "sweep_config.json")
 
     # Serialisable subset of BASE_CONFIG — exclude nn.Module and other non-JSON types.
     base_config_serialisable = {
-        k: v for k, v in BASE_CONFIG.items()
-        if isinstance(v, (str, int, float, bool, type(None)))
+        k: v for k, v in BASE_CONFIG.items() if isinstance(v, (str, int, float, bool, type(None)))
     }
 
     try:
         git_hash: str | None = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
+            ["git", "rev-parse", "--short", "HEAD"],
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
     except Exception:
         git_hash = None
 
-    timestamp = datetime.datetime.now().isoformat(timespec='seconds')
+    timestamp = datetime.datetime.now().isoformat(timespec="seconds")
 
     if not resumed:
         config: dict = {
-            'started_at':        timestamp,
-            'n_trials_requested': n_trials,
-            'model_type':    BASE_CONFIG.get('model_type', 'unknown'),
-            'training_data': TRAINING_DATA,
-            'n_folds':       N_FOLDS,
-            'base_config':       base_config_serialisable,
-            'search_space': {
-                k: list(v) if isinstance(v, tuple) else v
-                for k, v in SEARCH_SPACE.items()
+            "started_at": timestamp,
+            "n_trials_requested": n_trials,
+            "model_type": BASE_CONFIG.get("model_type", "unknown"),
+            "training_data": TRAINING_DATA,
+            "n_folds": N_FOLDS,
+            "base_config": base_config_serialisable,
+            "search_space": {
+                k: list(v) if isinstance(v, tuple) else v for k, v in SEARCH_SPACE.items()
             },
-            'optuna_sampler':    'TPESampler',
-            'python_version':    sys.version,
-            'git_commit':        git_hash,
-            'resume_events':     [],
+            "optuna_sampler": "TPESampler",
+            "python_version": sys.version,
+            "git_commit": git_hash,
+            "resume_events": [],
         }
     else:
-        with open(config_path, encoding='utf-8') as _f:
+        with open(config_path, encoding="utf-8") as _f:
             config = json.load(_f)
-        config.setdefault('resume_events', []).append({
-            'resumed_at':         timestamp,
-            'n_trials_requested': n_trials,
-            'git_commit':         git_hash,
-        })
+        config.setdefault("resume_events", []).append(
+            {
+                "resumed_at": timestamp,
+                "n_trials_requested": n_trials,
+                "git_commit": git_hash,
+            }
+        )
 
-    with open(config_path, 'w', encoding='utf-8') as _f:
+    with open(config_path, "w", encoding="utf-8") as _f:
         json.dump(config, _f, indent=2)
-
 
 
 def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) -> None:
@@ -381,47 +393,42 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
 
     sweep_stdout = sys.stdout
 
-    results_csv = os.path.join(sweep_dir, 'sweep_results.csv')
-    db_path     = resume_db if resume_db else os.path.join(sweep_dir, 'optuna_study.db')
-    storage_url = f'sqlite:///{db_path}'
+    results_csv = os.path.join(sweep_dir, "sweep_results.csv")
+    db_path = resume_db if resume_db else os.path.join(sweep_dir, "optuna_study.db")
+    storage_url = f"sqlite:///{db_path}"
 
     # Write CSV header only for brand-new studies
     if not os.path.exists(results_csv):
-        with open(results_csv, 'w', newline='') as f:
+        with open(results_csv, "w", newline="") as f:
             csv.writer(f).writerow(_CSV_FIELDS)
 
     # Create (or resume) the Optuna study.
     # TPESampler is Optuna's Bayesian (TPE) sampler — the default, but made
     # explicit here with a fixed seed for reproducibility.
     study = optuna.create_study(
-        study_name=f'{BASE_CONFIG["model_type"]}_bayesian_sweep',
-        direction='minimize',
-        sampler=TPESampler(seed=BASE_CONFIG['random_seed']),
+        study_name=f"{BASE_CONFIG['model_type']}_bayesian_sweep",
+        direction="minimize",
+        sampler=TPESampler(seed=BASE_CONFIG["random_seed"]),
         storage=storage_url,
         load_if_exists=True,  # seamless resume when DB already exists
     )
 
-    n_done = sum(
-        1 for t in study.trials
-        if t.state == optuna.trial.TrialState.COMPLETE
-    )
+    n_done = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE)
     if n_done > 0:
-        sweep_stdout.write(
-            f'[Resume] {n_done} completed trial(s) loaded from {db_path}\n'
-        )
+        sweep_stdout.write(f"[Resume] {n_done} completed trial(s) loaded from {db_path}\n")
 
     sweep_stdout.write(
-        f'Bayesian search: {n_trials} new trial(s) | TPE sampler | '
-        f'{N_FOLDS}-fold CV per trial | DB: {db_path}\n'
-        f'Search space:\n'
-        f'  hidden_dims  (categorical): {SEARCH_SPACE["hidden_dims"]}\n'
-        f'  dropout_rate (uniform):     [{SEARCH_SPACE["dropout_rate"][0]}, '
-        f'{SEARCH_SPACE["dropout_rate"][1]}]\n'
-        f'  lr           (log-uniform): [{SEARCH_SPACE["lr"][0]:.0e}, '
-        f'{SEARCH_SPACE["lr"][1]:.0e}]\n'
-        f'  weight_decay (log-uniform): [{SEARCH_SPACE["weight_decay"][0]:.0e}, '
-        f'{SEARCH_SPACE["weight_decay"][1]:.0e}]\n'
-        f'  batch_size   (categorical): {SEARCH_SPACE["batch_size"]}\n\n'
+        f"Bayesian search: {n_trials} new trial(s) | TPE sampler | "
+        f"{N_FOLDS}-fold CV per trial | DB: {db_path}\n"
+        f"Search space:\n"
+        f"  hidden_dims  (categorical): {SEARCH_SPACE['hidden_dims']}\n"
+        f"  dropout_rate (uniform):     [{SEARCH_SPACE['dropout_rate'][0]}, "
+        f"{SEARCH_SPACE['dropout_rate'][1]}]\n"
+        f"  lr           (log-uniform): [{SEARCH_SPACE['lr'][0]:.0e}, "
+        f"{SEARCH_SPACE['lr'][1]:.0e}]\n"
+        f"  weight_decay (log-uniform): [{SEARCH_SPACE['weight_decay'][0]:.0e}, "
+        f"{SEARCH_SPACE['weight_decay'][1]:.0e}]\n"
+        f"  batch_size   (categorical): {SEARCH_SPACE['batch_size']}\n\n"
     )
     sweep_stdout.flush()
 
@@ -433,45 +440,47 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
 
     # --- Final leaderboard ---
     all_results = []
-    with open(results_csv, newline='') as f:
+    with open(results_csv, newline="") as f:
         for row in csv.DictReader(f):
             try:
-                mean_mse = float(row['mean_val_mse'])
-                std_mse  = float(row['std_val_mse'])
-                mean_rho = float(row['mean_val_rho'])
-                std_rho  = float(row['std_val_rho'])
+                mean_mse = float(row["mean_val_mse"])
+                std_mse = float(row["std_val_mse"])
+                mean_rho = float(row["mean_val_rho"])
+                std_rho = float(row["std_val_rho"])
             except ValueError:
-                mean_mse = std_mse = mean_rho = std_rho = float('nan')
-            all_results.append({
-                'trial_id':     int(row['trial_id']),
-                'hidden_dims':  row['hidden_dims'],
-                'dropout_rate': float(row['dropout_rate']),
-                'lr':           float(row['lr']),
-                'weight_decay': float(row['weight_decay']),
-                'batch_size':   int(row['batch_size']),
-                'mean_val_mse': mean_mse,
-                'std_val_mse':  std_mse,
-                'mean_val_rho': mean_rho,
-                'std_val_rho':  std_rho,
-            })
+                mean_mse = std_mse = mean_rho = std_rho = float("nan")
+            all_results.append(
+                {
+                    "trial_id": int(row["trial_id"]),
+                    "hidden_dims": row["hidden_dims"],
+                    "dropout_rate": float(row["dropout_rate"]),
+                    "lr": float(row["lr"]),
+                    "weight_decay": float(row["weight_decay"]),
+                    "batch_size": int(row["batch_size"]),
+                    "mean_val_mse": mean_mse,
+                    "std_val_mse": std_mse,
+                    "mean_val_rho": mean_rho,
+                    "std_val_rho": std_rho,
+                }
+            )
 
-    valid = [r for r in all_results if not math.isnan(r['mean_val_mse'])]
-    valid.sort(key=lambda r: r['mean_val_mse'])  # ascending: lower MSE is better
+    valid = [r for r in all_results if not math.isnan(r["mean_val_mse"])]
+    valid.sort(key=lambda r: r["mean_val_mse"])  # ascending: lower MSE is better
 
-    sweep_stdout.write('\n' + '=' * 80 + '\n')
-    sweep_stdout.write(f'Search complete. Full results: {results_csv}\n')
-    sweep_stdout.write(f'Optuna study DB (for resuming / analysis): {db_path}\n')
+    sweep_stdout.write("\n" + "=" * 80 + "\n")
+    sweep_stdout.write(f"Search complete. Full results: {results_csv}\n")
+    sweep_stdout.write(f"Optuna study DB (for resuming / analysis): {db_path}\n")
     sweep_stdout.write(
-        f'Top 10 configurations by mean validation MSE across {N_FOLDS} folds'
-        f' (lower is better):\n\n'
+        f"Top 10 configurations by mean validation MSE across {N_FOLDS} folds"
+        f" (lower is better):\n\n"
     )
     header = (
         f"{'Trial':>5}  {'hidden_dims':>18}  {'drop':>5}"
         f"  {'lr':>8}  {'wd':>8}  {'bs':>4}"
         f"  {'mean_mse':>10}  {'std_mse':>9}  {'mean_rho':>9}  {'std_rho':>8}"
     )
-    sweep_stdout.write(header + '\n')
-    sweep_stdout.write('-' * len(header) + '\n')
+    sweep_stdout.write(header + "\n")
+    sweep_stdout.write("-" * len(header) + "\n")
     for r in valid[:10]:
         sweep_stdout.write(
             f"{r['trial_id']:>5}  {str(r['hidden_dims']):>18}"
@@ -483,44 +492,50 @@ def run_sweep(n_trials: int = N_TRIALS_DEFAULT, resume_db: str | None = None) ->
 
     if valid:
         best = valid[0]
-        sweep_stdout.write('\n' + '=' * 80 + '\n')
-        sweep_stdout.write(f'Best configuration (trial {best["trial_id"]}):\n')
-        sweep_stdout.write(f'  hidden_dims:  {best["hidden_dims"]}\n')
-        sweep_stdout.write(f'  dropout_rate: {best["dropout_rate"]:.4f}\n')
-        sweep_stdout.write(f'  lr:           {best["lr"]:.2e}\n')
-        sweep_stdout.write(f'  weight_decay: {best["weight_decay"]:.2e}\n')
-        sweep_stdout.write(f'  batch_size:   {best["batch_size"]}\n')
+        sweep_stdout.write("\n" + "=" * 80 + "\n")
+        sweep_stdout.write(f"Best configuration (trial {best['trial_id']}):\n")
+        sweep_stdout.write(f"  hidden_dims:  {best['hidden_dims']}\n")
+        sweep_stdout.write(f"  dropout_rate: {best['dropout_rate']:.4f}\n")
+        sweep_stdout.write(f"  lr:           {best['lr']:.2e}\n")
+        sweep_stdout.write(f"  weight_decay: {best['weight_decay']:.2e}\n")
+        sweep_stdout.write(f"  batch_size:   {best['batch_size']}\n")
         sweep_stdout.write(
-            f'  mean_val_mse: {best["mean_val_mse"]:.6f} ± {best["std_val_mse"]:.6f}\n'
+            f"  mean_val_mse: {best['mean_val_mse']:.6f} ± {best['std_val_mse']:.6f}\n"
         )
         sweep_stdout.write(
-            f'  mean_val_rho: {best["mean_val_rho"]:.4f} ± {best["std_val_rho"]:.4f}\n'
+            f"  mean_val_rho: {best['mean_val_rho']:.4f} ± {best['std_val_rho']:.4f}\n"
         )
 
-    sweep_stdout.write('=' * 80 + '\n')
+    sweep_stdout.write("=" * 80 + "\n")
     sweep_stdout.write(
-        '\nNext step: copy the winning config into train_mem.py.\n'
-        'The sweep already used all 5 folds — no separate cross-validation run needed.\n'
+        "\nNext step: copy the winning config into train_mem.py.\n"
+        "The sweep already used all 5 folds — no separate cross-validation run needed.\n"
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Bayesian hyperparameter search for CLIPHBAMem using Optuna TPE.'
+        description="Bayesian hyperparameter search for CLIPHBAMem using Optuna TPE."
     )
     parser.add_argument(
-        '--n-trials', type=int, default=N_TRIALS_DEFAULT, metavar='N',
-        help=f'Number of Optuna trials to run (default: {N_TRIALS_DEFAULT}).',
+        "--n-trials",
+        type=int,
+        default=N_TRIALS_DEFAULT,
+        metavar="N",
+        help=f"Number of Optuna trials to run (default: {N_TRIALS_DEFAULT}).",
     )
     parser.add_argument(
-        '--resume', metavar='DB', default=None,
-        help='Path to an existing optuna_study.db to resume a previous search. '
-             'All completed trials are loaded automatically; no re-running.',
+        "--resume",
+        metavar="DB",
+        default=None,
+        help="Path to an existing optuna_study.db to resume a previous search. "
+        "All completed trials are loaded automatically; no re-running.",
     )
     parser.add_argument(
-        '--data_dir', default=None,
-        help='Root data directory. NOTE: set DATA_DIR env var before import '
-             'for this to affect module-level path defaults.',
+        "--data_dir",
+        default=None,
+        help="Root data directory. NOTE: set DATA_DIR env var before import "
+        "for this to affect module-level path defaults.",
     )
     args = parser.parse_args()
     run_sweep(n_trials=args.n_trials, resume_db=args.resume)

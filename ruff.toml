@@ -1,0 +1,38 @@
+target-version = "py311"
+line-length = 100
+
+# Exclude notebooks (exploratory code, not production) and generated/data dirs,
+# plus all legacy MEG/behavior pipeline files and vendored CLIP source (do not modify).
+exclude = [
+    "**/*.ipynb",
+    "CLIP-HBA/Data/",
+    "CLIP-HBA/figures/",
+    # Legacy MEG/behavior pipelines — do not modify
+    "CLIP-HBA/functions/inference_behavior_pipeline.py",
+    "CLIP-HBA/functions/inference_meg_group_pipeline.py",
+    "CLIP-HBA/functions/inference_meg_individual_pipeline.py",
+    "CLIP-HBA/functions/spose_dimensions.py",
+    "CLIP-HBA/functions/train_behavior_things_pipeline.py",
+    "CLIP-HBA/functions/train_meg_individual_pipeline.py",
+    "CLIP-HBA/functions/train_meg_things_pipeline.py",
+    "CLIP-HBA/inference_behavior.py",
+    "CLIP-HBA/inference_meg_group.py",
+    "CLIP-HBA/inference_meg_individual.py",
+    "CLIP-HBA/train_behavior.py",
+    "CLIP-HBA/train_meg_group.py",
+    "CLIP-HBA/train_meg_individual.py",
+    # Vendored CLIP source — do not modify
+    "src/",
+    ".git",
+    "__pycache__",
+]
+
+[lint]
+# E/W: pycodestyle   F: pyflakes   I: isort
+select = ["E", "F", "W", "I"]
+# Long lines are tolerated in scientific code (array literals, long config dicts)
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"CLIP-HBA/extract_embeddings_meg.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/extract_things_meg_embeddings.py" = ["F403", "F405", "F821", "E402"]

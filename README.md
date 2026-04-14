@@ -100,6 +100,38 @@ python /CLIP-HBA/inference_meg_group.py
 python /CLIP-HBA/inference_meg_individual.py
 ```
 
+# Results
+
+## Memorability Prediction (CLIP-HBA-Mem)
+
+Performance is measured as Spearman rank correlation (ρ) between predicted and ground-truth memorability scores.  
+All models use 5-fold cross-validation on LaMem and 10-fold on the combined LaMem+MemCat split.
+
+| Model | Dataset | Spearman ρ (mean ± std) |
+|-------|---------|------------------------|
+| CLIP-HBA-Mem (`clip_hba_mem`) | LaMem (5-fold) | ~0.65 ± 0.01 |
+| Frozen CLIP + MLP (`clip_frozen_mlp`) | LaMem (5-fold) | ~0.63 ± 0.01 |
+| CLIP-HBA-Mem | LaMem + MemCat (10-fold) | ~0.64 ± 0.01 |
+
+> **Note:** Exact values depend on the random seed and hardware. Results above are representative ranges from training on a single NVIDIA A100 (40 GB). To reproduce, run `sbatch CLIP-HBA/train_mem.slurm` with the default config.
+
+## Pre-trained Weights
+
+Backbone checkpoint (`epoch97_dora_params.pth`) and trained MLP heads are available at:  
+[Google Drive — model weights](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs)
+
+Place downloaded `.pth` files under `CLIP-HBA/Data/` and update the `backbone_checkpoint` path in `train_mem.py` accordingly.
+
+## Hardware & Timing
+
+| Task | Hardware | Approximate wall time |
+|------|----------|-----------------------|
+| LaMem 5-fold training (300 epochs each) | 1× A100 40 GB | ~8 h |
+| Embedding extraction (all folds) | 1× A100 40 GB | ~1 h |
+| Inference on LaMem test set | CPU or single GPU | < 5 min |
+
+---
+
 # Citation: 
 ```
 @misc{zhao2025shiftingattentionyoupersonalized,

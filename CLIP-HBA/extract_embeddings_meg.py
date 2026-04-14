@@ -74,34 +74,35 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-sys.path.append('../')
-from functions.spose_dimensions import classnames66
+sys.path.append("../")
 from functions.inference_meg_group_pipeline import (
     CLIPHBA,
     apply_dora_to_ViT,
     seed_everything,
 )
+from functions.spose_dimensions import classnames66
 from functions.train_mem_pipeline import MemDataset
 
 # ---------------------------------------------------------------------------
 # Timepoint configuration
 # ---------------------------------------------------------------------------
-MEG_MS_START:      int = -100   # full model temporal range (must match checkpoint)
-MEG_MS_END:        int = 1300
-MEG_MS_STEP:       int = 5
+MEG_MS_START: int = -100  # full model temporal range (must match checkpoint)
+MEG_MS_END: int = 1300
+MEG_MS_STEP: int = 5
 
-EXTRACT_START:     int = int(os.environ.get('EXTRACT_START', -100))   # first timepoint to extract
-EXTRACT_END:       int = int(os.environ.get('EXTRACT_END',   1300))   # last timepoint to extract (inclusive)
-EXTRACT_STEP:      int = 5      # stride in ms; 5 = full model resolution (281 timepoints)
+EXTRACT_START: int = int(os.environ.get("EXTRACT_START", -100))  # first timepoint to extract
+EXTRACT_END: int = int(os.environ.get("EXTRACT_END", 1300))  # last timepoint to extract (inclusive)
+EXTRACT_STEP: int = 5  # stride in ms; 5 = full model resolution (281 timepoints)
 
-TRAIN_WINDOW_SIZE: int = 0      # no averaging window — use exact parameters per timepoint
+TRAIN_WINDOW_SIZE: int = 0  # no averaging window — use exact parameters per timepoint
 
-MODEL_TYPE_BASE:   str = 'clip_hba_meg_mem'
+MODEL_TYPE_BASE: str = "clip_hba_meg_mem"
 
 
 # ---------------------------------------------------------------------------
 # Model loading helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_meg_model(
     meg_checkpoint: str,
@@ -135,25 +136,29 @@ def _build_meg_model(
     classnames = classnames66  # list of 66 semantic dimension strings
 
     weighting_matrix = None
-    beta             = None
-    noise_level      = None
-    visual_scaler    = None
-    text_dora_r      = 32
+    beta = None
+    noise_level = None
+    visual_scaler = None
+    text_dora_r = 32
     text_dora_dropout = 0.1
 
-    print(f'[MEG] Building CLIPHBA  backbone=ViT-L/14  '
-          f'ms=[{MEG_MS_START}, {MEG_MS_END}] step={MEG_MS_STEP} ms  '
-          f'extract=[{extract_start}, {extract_end}] step={extract_step} ms  '
-          f'window={train_window_size} ms')
-    print(f'[MEG] Init params:  weighting_matrix={weighting_matrix}  beta={beta}  '
-          f'noise_level={noise_level}  visual_scaler={visual_scaler}  '
-          f'(scalar values populated from checkpoint)')
+    print(
+        f"[MEG] Building CLIPHBA  backbone=ViT-L/14  "
+        f"ms=[{MEG_MS_START}, {MEG_MS_END}] step={MEG_MS_STEP} ms  "
+        f"extract=[{extract_start}, {extract_end}] step={extract_step} ms  "
+        f"window={train_window_size} ms"
+    )
+    print(
+        f"[MEG] Init params:  weighting_matrix={weighting_matrix}  beta={beta}  "
+        f"noise_level={noise_level}  visual_scaler={visual_scaler}  "
+        f"(scalar values populated from checkpoint)"
+    )
 
     model = CLIPHBA(
         classnames=classnames,
         weighting_matrix=weighting_matrix,
-        backbone_name='ViT-L/14',
-        pos_embedding=True,   # ViT-L/14 uses positional embeddings
+        backbone_name="ViT-L/14",
+        pos_embedding=True,  # ViT-L/14 uses positional embeddings
         ms_start=MEG_MS_START,
         ms_step=MEG_MS_STEP,
         ms_end=MEG_MS_END,
@@ -174,8 +179,10 @@ def _build_meg_model(
         r=text_dora_r,
         dora_dropout=text_dora_dropout,
     )
-    print(f'[DoRA] Applied to text transformer: '
-          f'n_transformer_layers={transformer_layers}  r={text_dora_r}  dropout={text_dora_dropout}')
+    print(
+        f"[DoRA] Applied to text transformer: "
+        f"n_transformer_layers={transformer_layers}  r={text_dora_r}  dropout={text_dora_dropout}"
+    )
 
     vision_dora_dropout = 0.1
     apply_dora_to_ViT(
@@ -185,33 +192,35 @@ def _build_meg_model(
         r=rank,
         dora_dropout=vision_dora_dropout,
     )
-    print(f'[DoRA] Applied to vision encoder: '
-          f'n_vision_layers={vision_layers}  r={rank}  dropout={vision_dora_dropout}')
+    print(
+        f"[DoRA] Applied to vision encoder: "
+        f"n_vision_layers={vision_layers}  r={rank}  dropout={vision_dora_dropout}"
+    )
 
-    print(f'[MEG] Loading checkpoint: {meg_checkpoint}')
-    state_dict = torch.load(meg_checkpoint, map_location='cpu')
-    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    print(f"[MEG] Loading checkpoint: {meg_checkpoint}")
+    state_dict = torch.load(meg_checkpoint, map_location="cpu")
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=True)
-    print('[MEG] Checkpoint loaded successfully.')
+    print("[MEG] Checkpoint loaded successfully.")
 
     # Confirm learned scalar parameters loaded from checkpoint
     clip_model = model.clip_model
-    beta_val         = getattr(clip_model, 'beta',         None)
-    noise_val        = getattr(clip_model, 'noise_level',  None)
-    scaler_val       = getattr(clip_model, 'visual_scaler', None)
-    wmatrix_val      = getattr(clip_model, 'weighting_matrix', None)
+    beta_val = getattr(clip_model, "beta", None)
+    noise_val = getattr(clip_model, "noise_level", None)
+    scaler_val = getattr(clip_model, "visual_scaler", None)
+    wmatrix_val = getattr(clip_model, "weighting_matrix", None)
 
     def _fmt(t):
         if t is None:
-            return 'None'
-        if hasattr(t, 'shape'):
-            return f'Tensor{list(t.shape)}  min={t.min().item():.4f}  max={t.max().item():.4f}'
+            return "None"
+        if hasattr(t, "shape"):
+            return f"Tensor{list(t.shape)}  min={t.min().item():.4f}  max={t.max().item():.4f}"
         return repr(t)
 
-    print(f'[Checkpoint] beta          = {_fmt(beta_val)}')
-    print(f'[Checkpoint] noise_level   = {_fmt(noise_val)}')
-    print(f'[Checkpoint] visual_scaler = {_fmt(scaler_val)}')
-    print(f'[Checkpoint] weighting_matrix = {_fmt(wmatrix_val)}')
+    print(f"[Checkpoint] beta          = {_fmt(beta_val)}")
+    print(f"[Checkpoint] noise_level   = {_fmt(noise_val)}")
+    print(f"[Checkpoint] visual_scaler = {_fmt(scaler_val)}")
+    print(f"[Checkpoint] weighting_matrix = {_fmt(wmatrix_val)}")
 
     # Freeze all parameters — backbone is always frozen during memorability training
     for p in model.parameters():
@@ -225,13 +234,14 @@ def _build_meg_model(
 # Per-fold extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_meg_embeddings_for_fold(
     meg_checkpoint: str,
     fold: int,
     train_csv: str,
     val_csv: str,
     test_csv: str,
-    img_root: 'str | dict',
+    img_root: "str | dict",
     out_dir: str,
     device: torch.device,
     batch_size: int = 128,
@@ -243,7 +253,7 @@ def extract_meg_embeddings_for_fold(
     train_window_size: int = TRAIN_WINDOW_SIZE,
     extract_start: int = EXTRACT_START,
     extract_end: int = EXTRACT_END,
-    memcat_meta_csv: 'str | None' = None,
+    memcat_meta_csv: "str | None" = None,
 ) -> None:
     """Extract and save 66-dim MEG embeddings for every timepoint and split.
 
@@ -277,43 +287,44 @@ def extract_meg_embeddings_for_fold(
     out_dir_path = pathlib.Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    sampled_tps  = list(range(extract_start, extract_end + 1, extract_step))
+    sampled_tps = list(range(extract_start, extract_end + 1, extract_step))
     n_timepoints = len(sampled_tps)
 
     def _out_path(tp_ms: int, split: str) -> pathlib.Path:
-        return out_dir_path / f'{MODEL_TYPE_BASE}_tp{tp_ms}_fold{fold}_{split}.pt'
+        return out_dir_path / f"{MODEL_TYPE_BASE}_tp{tp_ms}_fold{fold}_{split}.pt"
 
-    splits = {'train': train_csv, 'val': val_csv, 'test': test_csv}
+    splits = {"train": train_csv, "val": val_csv, "test": test_csv}
 
     # Snapshot existing filenames with a single directory listing to avoid
     # repeated os.stat() calls on network drives (WinError 4 / too many open files).
     existing_files: set[str] = (
-        {p.name for p in out_dir_path.iterdir() if p.is_file()}
-        if out_dir_path.exists() else set()
+        {p.name for p in out_dir_path.iterdir() if p.is_file()} if out_dir_path.exists() else set()
     )
 
     def _exists(tp_ms: int, split: str) -> bool:
         return _out_path(tp_ms, split).name in existing_files
 
     # Skip entire fold if all output files already exist
-    all_exist = all(
-        _exists(tp, split)
-        for tp in sampled_tps
-        for split in splits
-    )
+    all_exist = all(_exists(tp, split) for tp in sampled_tps for split in splits)
     if all_exist:
-        print(f'[Skip] All files for fold {fold} already exist — delete to re-extract.')
+        print(f"[Skip] All files for fold {fold} already exist — delete to re-extract.")
         return
 
     model = _build_meg_model(
-        meg_checkpoint, vision_layers, transformer_layers, rank, extract_start=extract_start, extract_end=extract_end,
-        extract_step=extract_step, train_window_size=train_window_size,
+        meg_checkpoint,
+        vision_layers,
+        transformer_layers,
+        rank,
+        extract_start=extract_start,
+        extract_end=extract_end,
+        extract_step=extract_step,
+        train_window_size=train_window_size,
     )
     model.to(device)
 
     for split_name, csv_path in splits.items():
         if all(_exists(tp, split_name) for tp in sampled_tps):
-            print(f'[Skip] All timepoints for fold {fold} / {split_name} exist.')
+            print(f"[Skip] All timepoints for fold {fold} / {split_name} exist.")
             continue
 
         dataset = MemDataset(
@@ -330,15 +341,17 @@ def extract_meg_embeddings_for_fold(
         )
 
         n_images = len(dataset)
-        print(f'\n[MEG | fold {fold} | {split_name}]  {n_images} images  '
-              f'->  {n_timepoints} timepoints  |  out: {out_dir_path}')
+        print(
+            f"\n[MEG | fold {fold} | {split_name}]  {n_images} images  "
+            f"->  {n_timepoints} timepoints  |  out: {out_dir_path}"
+        )
 
         # Accumulate embeddings for all timepoints in a single pass
         all_embeddings_per_tp: list[list] = [[] for _ in range(n_timepoints)]
-        all_scores:      list = []
+        all_scores: list = []
         all_image_paths: list = []
 
-        with torch.no_grad(), tqdm(loader, desc=f'  {split_name}') as pbar:
+        with torch.no_grad(), tqdm(loader, desc=f"  {split_name}") as pbar:
             for image_paths, images, scores in pbar:
                 images = images.to(device)
                 # pred_emb_3d: [n_timepoints, batch, 66]
@@ -356,28 +369,31 @@ def extract_meg_embeddings_for_fold(
         for t_idx, tp_ms in enumerate(sampled_tps):
             out_path = _out_path(tp_ms, split_name)
             if _exists(tp_ms, split_name):
-                print(f'  [Skip] {out_path.name} already exists.')
+                print(f"  [Skip] {out_path.name} already exists.")
                 continue
 
             embeddings_tensor = torch.cat(all_embeddings_per_tp[t_idx], dim=0)  # [N, 66]
             payload = {
-                'embeddings':  embeddings_tensor,
-                'scores':      all_scores_tensor,
-                'image_paths': all_image_paths,
+                "embeddings": embeddings_tensor,
+                "scores": all_scores_tensor,
+                "image_paths": all_image_paths,
             }
             torch.save(payload, out_path)
-            print(f'  tp={tp_ms:+5d} ms  ->  {out_path.name}  '
-                  f'(shape {tuple(embeddings_tensor.shape)})')
+            print(
+                f"  tp={tp_ms:+5d} ms  ->  {out_path.name}  "
+                f"(shape {tuple(embeddings_tensor.shape)})"
+            )
 
     model.cpu()
     del model
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
 
 # ---------------------------------------------------------------------------
 # THINGS image discovery and dataset
 # ---------------------------------------------------------------------------
+
 
 def discover_things_images(img_dir: str) -> list[str]:
     """Walk ``img_dir`` and return sorted relative paths (``concept/file.jpg``)."""
@@ -386,8 +402,8 @@ def discover_things_images(img_dir: str) -> list[str]:
     for concept_dir in sorted(img_dir.iterdir()):
         if not concept_dir.is_dir():
             continue
-        for img_path in sorted(concept_dir.glob('*.jpg')):
-            rel_paths.append(f'{concept_dir.name}/{img_path.name}')
+        for img_path in sorted(concept_dir.glob("*.jpg")):
+            rel_paths.append(f"{concept_dir.name}/{img_path.name}")
     return rel_paths
 
 
@@ -397,14 +413,16 @@ class ThingsImageDataset(Dataset):
     def __init__(self, image_rel_paths: list[str], img_dir: str) -> None:
         self.image_rel_paths = image_rel_paths
         self.img_dir = pathlib.Path(img_dir)
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.52997664, 0.48070561, 0.41943838],
-                std=[0.27608301, 0.26593025, 0.28238822],
-            ),
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.52997664, 0.48070561, 0.41943838],
+                    std=[0.27608301, 0.26593025, 0.28238822],
+                ),
+            ]
+        )
 
     def __len__(self) -> int:
         return len(self.image_rel_paths)
@@ -422,6 +440,7 @@ class ThingsImageDataset(Dataset):
 # THINGS extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_meg_embeddings_for_things(
     meg_checkpoint: str,
     things_img_dir: str,
@@ -435,7 +454,7 @@ def extract_meg_embeddings_for_things(
     extract_start: int = EXTRACT_START,
     extract_end: int = EXTRACT_END,
     extract_step: int = EXTRACT_STEP,
-    out_filename: str = 'things_meg_embeddings_66d.csv',
+    out_filename: str = "things_meg_embeddings_66d.csv",
 ) -> None:
     """Extract and save 66-dim MEG embeddings for THINGS images as a single CSV.
 
@@ -461,24 +480,30 @@ def extract_meg_embeddings_for_things(
     out_path = out_dir_path / out_filename
 
     if out_path.exists():
-        print(f'[Skip] {out_path} already exists — delete to re-extract.')
+        print(f"[Skip] {out_path} already exists — delete to re-extract.")
         return
 
     # Discover images
     image_rel_paths = discover_things_images(things_img_dir)
     n_images = len(image_rel_paths)
-    print(f'[THINGS] Discovered {n_images} images in {things_img_dir}')
+    print(f"[THINGS] Discovered {n_images} images in {things_img_dir}")
 
     sampled_tps = list(range(extract_start, extract_end + 1, extract_step))
     n_timepoints = len(sampled_tps)
-    print(f'[THINGS] Extracting {n_timepoints} timepoints  '
-          f'-> ~{n_images * n_timepoints:,} total rows')
+    print(
+        f"[THINGS] Extracting {n_timepoints} timepoints  -> ~{n_images * n_timepoints:,} total rows"
+    )
 
     # Build model
     model = _build_meg_model(
-        meg_checkpoint, vision_layers, transformer_layers, rank,
-        extract_start=extract_start, extract_end=extract_end,
-        extract_step=extract_step, train_window_size=TRAIN_WINDOW_SIZE,
+        meg_checkpoint,
+        vision_layers,
+        transformer_layers,
+        rank,
+        extract_start=extract_start,
+        extract_end=extract_end,
+        extract_step=extract_step,
+        train_window_size=TRAIN_WINDOW_SIZE,
     )
     model.to(device)
 
@@ -488,14 +513,14 @@ def extract_meg_embeddings_for_things(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=(device.type == 'cuda'),
+        pin_memory=(device.type == "cuda"),
     )
 
     # Accumulate embeddings: one list per timepoint
     all_embeddings_per_tp: list[list] = [[] for _ in range(n_timepoints)]
     all_names: list[str] = []
 
-    with torch.no_grad(), tqdm(loader, desc='Extracting MEG embeddings') as pbar:
+    with torch.no_grad(), tqdm(loader, desc="Extracting MEG embeddings") as pbar:
         for names, images in pbar:
             images = images.to(device)
             # pred_emb_3d: [n_timepoints, batch, 66]
@@ -508,23 +533,23 @@ def extract_meg_embeddings_for_things(
             all_names.extend(names)
 
     # Build long-format DataFrame: image_name, timepoint_ms, dim_0..dim_65
-    dim_cols = [f'dim_{i}' for i in range(66)]
+    dim_cols = [f"dim_{i}" for i in range(66)]
     rows: list[pd.DataFrame] = []
 
-    for t_idx, tp_ms in enumerate(tqdm(sampled_tps, desc='Assembling CSV')):
+    for t_idx, tp_ms in enumerate(tqdm(sampled_tps, desc="Assembling CSV")):
         embeddings = np.concatenate(all_embeddings_per_tp[t_idx], axis=0)  # [N, 66]
         tp_df = pd.DataFrame(embeddings, columns=dim_cols)
-        tp_df.insert(0, 'image_name', all_names)
-        tp_df.insert(1, 'timepoint_ms', tp_ms)
+        tp_df.insert(0, "image_name", all_names)
+        tp_df.insert(1, "timepoint_ms", tp_ms)
         rows.append(tp_df)
 
     df = pd.concat(rows, ignore_index=True)
     df.to_csv(out_path, index=False)
-    print(f'\n[THINGS] Saved {len(df):,} rows x {df.shape[1]} columns -> {out_path}')
+    print(f"\n[THINGS] Saved {len(df):,} rows x {df.shape[1]} columns -> {out_path}")
 
     model.cpu()
     del model
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
 
@@ -532,148 +557,148 @@ def extract_meg_embeddings_for_things(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     # Resolve data_dir early so sub-path defaults can reference it.
-    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+    _data_dir_default = os.environ.get("DATA_DIR", "./Data")
 
     parser = argparse.ArgumentParser(
-        description='Pre-extract 66-dim CLIP-HBA-MEG embeddings at each timepoint.',
+        description="Pre-extract 66-dim CLIP-HBA-MEG embeddings at each timepoint.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--data_dir',
+        "--data_dir",
         default=_data_dir_default,
-        help='Root data directory (replaces the ./Data prefix). '
-             'Also settable via DATA_DIR env var.',
+        help="Root data directory (replaces the ./Data prefix). "
+        "Also settable via DATA_DIR env var.",
     )
     parser.add_argument(
-        '--meg_checkpoint',
-        default=os.environ.get('MEG_CHECKPOINT', './models/cliphba_meg_group.pth'),
-        help='Path to the trained CLIP-HBA-MEG state dict.',
+        "--meg_checkpoint",
+        default=os.environ.get("MEG_CHECKPOINT", "./models/cliphba_meg_group.pth"),
+        help="Path to the trained CLIP-HBA-MEG state dict.",
     )
     parser.add_argument(
-        '--training_data',
-        default=os.environ.get('TRAINING_DATA', 'combined_lamem_memcat'),
-        choices=['lamem', 'combined_lamem_memcat', 'things'],
-        help='Dataset to extract embeddings for. '
-             '"things" discovers all .jpg images under --things_img_dir '
-             'and saves a single CSV (no folds/splits).',
+        "--training_data",
+        default=os.environ.get("TRAINING_DATA", "combined_lamem_memcat"),
+        choices=["lamem", "combined_lamem_memcat", "things"],
+        help="Dataset to extract embeddings for. "
+        '"things" discovers all .jpg images under --things_img_dir '
+        "and saves a single CSV (no folds/splits).",
     )
     parser.add_argument(
-        '--fold',
+        "--fold",
         type=int,
-        default=int(os.environ.get('FOLD', 1)),
-        help='Fold number (1–5 for lamem; 1–10 for combined_lamem_memcat).',
+        default=int(os.environ.get("FOLD", 1)),
+        help="Fold number (1–5 for lamem; 1–10 for combined_lamem_memcat).",
     )
     parser.add_argument(
-        '--img_root',
-        default=os.environ.get('LAMEM_IMG_ROOT', f'{_data_dir_default}/lamem/images/'),
-        help='LaMem images root directory.',
+        "--img_root",
+        default=os.environ.get("LAMEM_IMG_ROOT", f"{_data_dir_default}/lamem/images/"),
+        help="LaMem images root directory.",
     )
     parser.add_argument(
-        '--memcat_img_root',
-        default=os.environ.get('MEMCAT_IMG_ROOT', f'{_data_dir_default}/memcat/images/'),
-        help='MemCat images root directory (combined_lamem_memcat only).',
+        "--memcat_img_root",
+        default=os.environ.get("MEMCAT_IMG_ROOT", f"{_data_dir_default}/memcat/images/"),
+        help="MemCat images root directory (combined_lamem_memcat only).",
     )
     parser.add_argument(
-        '--memcat_meta_csv',
-        default=os.environ.get('MEMCAT_META_CSV', f'{_data_dir_default}/memcat/memcat_image_data.csv'),
-        help='Path to memcat_image_data.csv (combined_lamem_memcat only).',
+        "--memcat_meta_csv",
+        default=os.environ.get(
+            "MEMCAT_META_CSV", f"{_data_dir_default}/memcat/memcat_image_data.csv"
+        ),
+        help="Path to memcat_image_data.csv (combined_lamem_memcat only).",
     )
     parser.add_argument(
-        '--things_img_dir',
-        default=os.environ.get('THINGS_IMG_DIR', 'Z:/multimodal_brain_inspired/THINGS_images'),
-        help='Root directory with THINGS concept subfolders (things mode only).',
+        "--things_img_dir",
+        default=os.environ.get("THINGS_IMG_DIR", "Z:/multimodal_brain_inspired/THINGS_images"),
+        help="Root directory with THINGS concept subfolders (things mode only).",
     )
     parser.add_argument(
-        '--out_dir',
-        default=os.environ.get('MEG_OUT_DIR', None),
-        help='Output directory for .pt embedding files.  '
-             'Defaults to <data_dir>/lamem/meg_embeddings/ or '
-             '<data_dir>/combined_lamem_memcat/meg_embeddings/.',
+        "--out_dir",
+        default=os.environ.get("MEG_OUT_DIR", None),
+        help="Output directory for .pt embedding files.  "
+        "Defaults to <data_dir>/lamem/meg_embeddings/ or "
+        "<data_dir>/combined_lamem_memcat/meg_embeddings/.",
     )
     parser.add_argument(
-        '--timepoints',
+        "--timepoints",
         type=int,
-        nargs='+',
+        nargs="+",
         default=None,
-        metavar='MS',
-        help='Explicit list of timepoints in ms to extract (e.g. --timepoints 50 150 250 350).  '
-             'When provided, --extract_step is ignored.',
+        metavar="MS",
+        help="Explicit list of timepoints in ms to extract (e.g. --timepoints 50 150 250 350).  "
+        "When provided, --extract_step is ignored.",
     )
     parser.add_argument(
-        '--extract_start',
+        "--extract_start",
         type=int,
         default=EXTRACT_START,
-        help='First timepoint to extract in ms (default -100).  '
-             'Also settable via EXTRACT_START env var.',
+        help="First timepoint to extract in ms (default -100).  "
+        "Also settable via EXTRACT_START env var.",
     )
     parser.add_argument(
-        '--extract_end',
+        "--extract_end",
         type=int,
         default=EXTRACT_END,
-        help='Last timepoint to extract in ms, inclusive (default 1300).  '
-             'Also settable via EXTRACT_END env var.',
+        help="Last timepoint to extract in ms, inclusive (default 1300).  "
+        "Also settable via EXTRACT_END env var.",
     )
     parser.add_argument(
-        '--extract_step',
+        "--extract_step",
         type=int,
-        default=int(os.environ.get('EXTRACT_STEP', EXTRACT_STEP)),
-        help='Stride in ms between extracted timepoints.  '
-             f'Default {EXTRACT_STEP} ms = full model resolution (281 timepoints).  '
-             'Use 100 for a coarser 15-timepoint grid.',
+        default=int(os.environ.get("EXTRACT_STEP", EXTRACT_STEP)),
+        help="Stride in ms between extracted timepoints.  "
+        f"Default {EXTRACT_STEP} ms = full model resolution (281 timepoints).  "
+        "Use 100 for a coarser 15-timepoint grid.",
     )
     parser.add_argument(
-        '--vision_layers',
+        "--vision_layers",
         type=int,
-        default=int(os.environ.get('VISION_LAYERS', 24)),
-        help='Number of ViT layers with DoRA in the MEG checkpoint.',
+        default=int(os.environ.get("VISION_LAYERS", 24)),
+        help="Number of ViT layers with DoRA in the MEG checkpoint.",
     )
     parser.add_argument(
-        '--transformer_layers',
+        "--transformer_layers",
         type=int,
-        default=int(os.environ.get('TRANSFORMER_LAYERS', 1)),
-        help='Number of text-transformer layers with DoRA in the MEG checkpoint.',
+        default=int(os.environ.get("TRANSFORMER_LAYERS", 1)),
+        help="Number of text-transformer layers with DoRA in the MEG checkpoint.",
     )
     parser.add_argument(
-        '--rank',
+        "--rank",
         type=int,
-        default=int(os.environ.get('DORA_RANK', 32)),
-        help='DoRA rank used in the MEG checkpoint.',
+        default=int(os.environ.get("DORA_RANK", 32)),
+        help="DoRA rank used in the MEG checkpoint.",
     )
     parser.add_argument(
-        '--batch_size',
+        "--batch_size",
         type=int,
-        default=int(os.environ.get('BATCH_SIZE', 128)),
-        help='Batch size for MEG backbone inference.',
+        default=int(os.environ.get("BATCH_SIZE", 128)),
+        help="Batch size for MEG backbone inference.",
     )
     parser.add_argument(
-        '--num_workers',
+        "--num_workers",
         type=int,
         default=8,
-        help='DataLoader worker processes for image loading.',
+        help="DataLoader worker processes for image loading.",
     )
     parser.add_argument(
-        '--cuda',
+        "--cuda",
         type=int,
-        default=int(os.environ.get('CUDA_DEVICE', 0)),
-        help='GPU index (0, 1, …).  Use 2 for CPU.',
+        default=int(os.environ.get("CUDA_DEVICE", 0)),
+        help="GPU index (0, 1, …).  Use 2 for CPU.",
     )
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=1,
-        help='Random seed for reproducibility.',
+        help="Random seed for reproducibility.",
     )
     args = parser.parse_args()
     data_dir = args.data_dir
 
     seed_everything(args.seed)
 
-    device = (
-        torch.device('cpu') if args.cuda == 2
-        else torch.device(f'cuda:{args.cuda}')
-    )
+    device = torch.device("cpu") if args.cuda == 2 else torch.device(f"cuda:{args.cuda}")
 
     fold = args.fold
 
@@ -683,28 +708,27 @@ def main() -> None:
     if args.timepoints is not None:
         tp_sorted = sorted(args.timepoints)
         eff_start = tp_sorted[0]
-        eff_end   = tp_sorted[-1]
-        eff_step  = (tp_sorted[1] - tp_sorted[0]) if len(tp_sorted) > 1 else MEG_MS_STEP
-        n_tps     = len(tp_sorted)
-        tp_desc   = f'explicit: {tp_sorted}  ({n_tps} total)'
+        eff_end = tp_sorted[-1]
+        eff_step = (tp_sorted[1] - tp_sorted[0]) if len(tp_sorted) > 1 else MEG_MS_STEP
+        n_tps = len(tp_sorted)
     else:
         eff_start = args.extract_start
-        eff_end   = args.extract_end
-        eff_step  = args.extract_step
+        eff_end = args.extract_end
+        eff_step = args.extract_step
         n_tps = len(range(eff_start, eff_end + 1, eff_step))
-        tp_desc = (f'{eff_start} to {eff_end} ms, '
-                   f'step {eff_step} ms  ({n_tps} total)')
 
-    if args.training_data == 'things':
-        out_dir = args.out_dir or 'T:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/THINGS/things_meg_embeddings'
+    if args.training_data == "things":
+        out_dir = (
+            args.out_dir
+            or "T:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/THINGS/things_meg_embeddings"
+        )
 
-        print(f'\n=== CLIP-HBA-MEG Embedding Extraction (THINGS) ===')
-        print(f'  Image dir:      {args.things_img_dir}')
-        print(f'  Timepoints:     {eff_start} to {eff_end} ms, '
-              f'step {eff_step} ms  ({n_tps} total)')
-        print(f'  Window:         none (exact per-timepoint parameters)')
-        print(f'  Output dir:     {out_dir}')
-        print(f'  Device:         {device}')
+        print("\n=== CLIP-HBA-MEG Embedding Extraction (THINGS) ===")
+        print(f"  Image dir:      {args.things_img_dir}")
+        print(f"  Timepoints:     {eff_start} to {eff_end} ms, step {eff_step} ms  ({n_tps} total)")
+        print("  Window:         none (exact per-timepoint parameters)")
+        print(f"  Output dir:     {out_dir}")
+        print(f"  Device:         {device}")
         print()
 
         extract_meg_embeddings_for_things(
@@ -722,32 +746,31 @@ def main() -> None:
             extract_step=eff_step,
         )
     else:
-        if args.training_data == 'lamem':
-            train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
-            val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
-            test_csv  = f'{data_dir}/lamem/lamem_test_{fold}.csv'
-            img_root  = args.img_root
+        if args.training_data == "lamem":
+            train_csv = f"{data_dir}/lamem/lamem_train_{fold}.csv"
+            val_csv = f"{data_dir}/lamem/lamem_val_{fold}.csv"
+            test_csv = f"{data_dir}/lamem/lamem_test_{fold}.csv"
+            img_root = args.img_root
             memcat_meta_csv = None
-            out_dir = args.out_dir or f'{data_dir}/lamem/meg_embeddings/'
+            out_dir = args.out_dir or f"{data_dir}/lamem/meg_embeddings/"
         else:  # combined_lamem_memcat
-            train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-            val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-            test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
-            img_root  = {
-                'lamem':  args.img_root,
-                'memcat': args.memcat_img_root,
+            train_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv"
+            val_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv"
+            test_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv"
+            img_root = {
+                "lamem": args.img_root,
+                "memcat": args.memcat_img_root,
             }
             memcat_meta_csv = args.memcat_meta_csv
-            out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
+            out_dir = args.out_dir or f"{data_dir}/combined_lamem_memcat/meg_embeddings/"
 
-        print(f'\n=== CLIP-HBA-MEG Embedding Extraction ===')
-        print(f'  Training data:  {args.training_data}')
-        print(f'  Fold:           {fold}')
-        print(f'  Timepoints:     {eff_start} to {eff_end} ms, '
-              f'step {eff_step} ms  ({n_tps} total)')
-        print(f'  Window:         none (exact per-timepoint parameters)')
-        print(f'  Output dir:     {out_dir}')
-        print(f'  Device:         {device}')
+        print("\n=== CLIP-HBA-MEG Embedding Extraction ===")
+        print(f"  Training data:  {args.training_data}")
+        print(f"  Fold:           {fold}")
+        print(f"  Timepoints:     {eff_start} to {eff_end} ms, step {eff_step} ms  ({n_tps} total)")
+        print("  Window:         none (exact per-timepoint parameters)")
+        print(f"  Output dir:     {out_dir}")
+        print(f"  Device:         {device}")
         print()
 
         extract_meg_embeddings_for_fold(
@@ -772,5 +795,5 @@ def main() -> None:
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,96 +1,57 @@
-absl-py
-addict
-aliyun-python-sdk-core
-aliyun-python-sdk-kms
-attrs
-av
-cachetools
-cffi
-click
+# Core deep learning
+# Note: torch/torchvision/torchaudio are installed separately with the CUDA index URL:
+#   pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 torchaudio==2.2.0+cu118 \
+#       --index-url https://download.pytorch.org/whl/cu118
+# For CPU-only (e.g. CI), use:
+#   pip install torch==2.2.0+cpu torchvision==0.17.0+cpu \
+#       --index-url https://download.pytorch.org/whl/cpu
 clip @ git+https://github.com/openai/CLIP.git@a1d071733d7111c9c014f024669f959182114e33
-codecov
-coloredlogs
-contourpy
-coverage
-crcmod
-cryptography
-cycler
-einops
-exceptiongroup
-facexlib
-filterpy
-flake8
-flatbuffers
-fonttools
-google-auth
-google-auth-oauthlib
-grpcio
-humanfriendly
-importlib-resources
-iniconfig
-interrogate
-ipykernel
-ipywidgets
-isort
-jmespath
-joblib
-jupyterlab_widgets
-kiwisolver
-llvmlite
-lmdb
-Markdown
-markdown-it-py
-MarkupSafe
-matplotlib
-mccabe
-mdurl
-model-index
-mpmath
-numba
-oauthlib
-onnxruntime
-opencv-python
-opendatalab
-openxlab
-ordered-set
-oss2
-pandas
-pillow
-pluggy
-protobuf
-py
-pyasn1
-pyasn1-modules
-pycodestyle
-pycparser
-pycryptodome
-pyflakes
-pyparsing
-pytest
-pytest-runner
-pytz
-requests
-requests-oauthlib
-rich
-rsa
-scikit-learn
-scipy
-seaborn
-sympy
-tabulate
-tensorboard
-tensorboard-data-server
-threadpoolctl
-tokenizers
-toml
-tomli
-tqdm
-transformers
-tzdata
-urllib3
-Werkzeug
-widgetsnbextension
-yapf
-h5py
-natsort
-imageio
+
+# Vision & ML
+einops==0.7.0
+transformers==4.40.0
+peft==0.10.0
+scikit-learn==1.4.1.post1
+scipy==1.13.0
+
+# Data
+numpy==1.26.4
+pandas==2.2.1
+h5py==3.11.0
+natsort==8.4.0
+imageio==2.34.1
+pillow==10.3.0
+
+# Utilities
+tqdm==4.66.2
+joblib==1.4.0
+rich==13.7.1
+
+# Visualisation
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Hyperparameter optimisation
+optuna==3.6.1
+
+# Jupyter
+ipykernel==6.29.3
+ipywidgets==8.1.2
+jupyterlab_widgets==3.0.10
+widgetsnbextension==4.0.10
+
+# Experiment logging
+tensorboard==2.16.2
+tensorboard-data-server==0.7.2
+
+# Dev / testing
+pytest==8.1.1
+pytest-runner==6.0.1
+coverage==7.4.4
+codecov==2.1.13
+pre-commit==3.7.0
+ruff==0.15.10
+
+# Misc
+toml==0.10.2
+tabulate==0.9.0

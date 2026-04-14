@@ -54,21 +54,20 @@ import os
 import pathlib
 
 import torch
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
+from functions.train_behavior_things_pipeline import seed_everything
 from functions.train_mem_pipeline import (
+    CLIPFrozenMLP,
+    CLIPHBAMem,
     MemDataset,
     PerceptCLIPDataset,
-    CLIPHBAMem,
-    CLIPFrozenMLP,
 )
-from functions.train_behavior_things_pipeline import seed_everything
-
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
 # Core extraction logic
 # ---------------------------------------------------------------------------
+
 
 def _build_backbone_and_extractor(
     model_type: str,
@@ -83,7 +82,7 @@ def _build_backbone_and_extractor(
     embed_fn(model, images) -> Tensor[B, 768] extracts the CLS-token
     embedding without running through the MLP head.
     """
-    if model_type == 'clip_hba_mem':
+    if model_type == "clip_hba_mem":
         model = CLIPHBAMem(
             backbone_checkpoint=backbone_checkpoint,
             backbone_name=backbone_name,
@@ -98,9 +97,10 @@ def _build_backbone_and_extractor(
         def embed_fn(m: torch.nn.Module, images: torch.Tensor) -> torch.Tensor:
             raw = m.module if isinstance(m, torch.nn.DataParallel) else m
             return raw.backbone.clip_model.encode_image(
-                images, raw.backbone.pos_embedding)   # [B, 768]
+                images, raw.backbone.pos_embedding
+            )  # [B, 768]
 
-    elif model_type == 'clip_frozen_mlp':
+    elif model_type == "clip_frozen_mlp":
         model = CLIPFrozenMLP(
             hidden_dims=(256, 128),  # dummy head — never called during extraction
             dropout_rate=0.0,
@@ -110,12 +110,11 @@ def _build_backbone_and_extractor(
         def embed_fn(m: torch.nn.Module, images: torch.Tensor) -> torch.Tensor:
             raw = m.module if isinstance(m, torch.nn.DataParallel) else m
             vis_out = raw.vision_model(images)
-            return raw.visual_projection(vis_out[1])   # [B, 768]
+            return raw.visual_projection(vis_out[1])  # [B, 768]
 
     else:
         raise ValueError(
-            f'Unknown model_type: {model_type!r}. '
-            f'Choose "clip_hba_mem" or "clip_frozen_mlp".'
+            f'Unknown model_type: {model_type!r}. Choose "clip_hba_mem" or "clip_frozen_mlp".'
         )
 
     return model, DatasetClass, embed_fn
@@ -127,17 +126,17 @@ def extract_embeddings_for_fold(
     train_csv: str,
     val_csv: str,
     test_csv: str,
-    img_root: 'str | dict',
+    img_root: "str | dict",
     backbone_checkpoint: str,
     out_dir: str,
     device: torch.device,
     batch_size: int = 256,
     num_workers: int = 8,
-    backbone_name: str = 'ViT-L/14',
+    backbone_name: str = "ViT-L/14",
     vision_layers: int = 2,
     transformer_layers: int = 1,
     rank: int = 32,
-    memcat_meta_csv: 'str | None' = None,
+    memcat_meta_csv: "str | None" = None,
 ) -> None:
     """Extract and save embeddings for all three splits of one fold.
 
@@ -182,16 +181,16 @@ def extract_embeddings_for_fold(
     model.to(device)
 
     splits = {
-        'train': train_csv,
-        'val':   val_csv,
-        'test':  test_csv,
+        "train": train_csv,
+        "val": val_csv,
+        "test": test_csv,
     }
 
     for split_name, csv_path in splits.items():
-        out_path = out_dir / f'{model_type}_fold{fold}_{split_name}.pt'
+        out_path = out_dir / f"{model_type}_fold{fold}_{split_name}.pt"
 
         if out_path.exists():
-            print(f'[Skip] {out_path} already exists — delete it to re-extract.')
+            print(f"[Skip] {out_path} already exists — delete it to re-extract.")
             continue
 
         dataset = DatasetClass(
@@ -199,7 +198,7 @@ def extract_embeddings_for_fold(
             img_root=img_root,
             memcat_meta_csv=memcat_meta_csv,
         )
-        loader  = DataLoader(
+        loader = DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=False,
@@ -207,34 +206,37 @@ def extract_embeddings_for_fold(
             pin_memory=True,
         )
 
-        all_embeddings:  list = []
-        all_scores:      list = []
+        all_embeddings: list = []
+        all_scores: list = []
         all_image_paths: list = []
 
-        print(f'\n[{model_type} | fold {fold} | {split_name}]  '
-              f'{len(dataset)} images  ->  {out_path}')
+        print(
+            f"\n[{model_type} | fold {fold} | {split_name}]  {len(dataset)} images  ->  {out_path}"
+        )
 
-        with torch.no_grad(), tqdm(loader, desc=f'  {split_name}') as pbar:
+        with torch.no_grad(), tqdm(loader, desc=f"  {split_name}") as pbar:
             for image_paths, images, scores in pbar:
                 images = images.to(device)
-                emb    = embed_fn(model, images)   # [B, 768]
+                emb = embed_fn(model, images)  # [B, 768]
                 all_embeddings.append(emb.cpu())
                 all_scores.append(scores.cpu())
                 all_image_paths.extend(image_paths)
 
         payload = {
-            'embeddings':  torch.cat(all_embeddings, dim=0),   # [N, 768]
-            'scores':      torch.cat(all_scores,      dim=0),   # [N]
-            'image_paths': all_image_paths,                      # list[N]
+            "embeddings": torch.cat(all_embeddings, dim=0),  # [N, 768]
+            "scores": torch.cat(all_scores, dim=0),  # [N]
+            "image_paths": all_image_paths,  # list[N]
         }
         torch.save(payload, out_path)
-        print(f'  Saved {payload["embeddings"].shape[0]:,} embeddings  '
-              f'({payload["embeddings"].shape}) -> {out_path}')
+        print(
+            f"  Saved {payload['embeddings'].shape[0]:,} embeddings  "
+            f"({payload['embeddings'].shape}) -> {out_path}"
+        )
 
     # Free GPU memory before the caller potentially builds another backbone.
     model.cpu()
     del model
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
 
@@ -242,116 +244,119 @@ def extract_embeddings_for_fold(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     # Resolve data_dir early so sub-path defaults can reference it.
-    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+    _data_dir_default = os.environ.get("DATA_DIR", "./Data")
 
     parser = argparse.ArgumentParser(
-        description='Pre-extract frozen backbone embeddings for memorability MLP training.',
+        description="Pre-extract frozen backbone embeddings for memorability MLP training.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--data_dir',
+        "--data_dir",
         default=_data_dir_default,
-        help='Root data directory (replaces the ./Data prefix). '
-             'Also settable via DATA_DIR env var.',
+        help="Root data directory (replaces the ./Data prefix). "
+        "Also settable via DATA_DIR env var.",
     )
     parser.add_argument(
-        '--training_data',
-        default=os.environ.get('TRAINING_DATA', 'lamem'),
-        choices=['lamem', 'combined_lamem_memcat'],
-        help='Dataset to extract embeddings for.',
+        "--training_data",
+        default=os.environ.get("TRAINING_DATA", "lamem"),
+        choices=["lamem", "combined_lamem_memcat"],
+        help="Dataset to extract embeddings for.",
     )
     parser.add_argument(
-        '--model_type',
-        default=os.environ.get('MODEL_TYPE', 'clip_frozen_mlp'),
-        choices=['clip_hba_mem', 'clip_frozen_mlp'],
-        help='Which frozen backbone to extract from.',
+        "--model_type",
+        default=os.environ.get("MODEL_TYPE", "clip_frozen_mlp"),
+        choices=["clip_hba_mem", "clip_frozen_mlp"],
+        help="Which frozen backbone to extract from.",
     )
     parser.add_argument(
-        '--fold',
+        "--fold",
         type=int,
-        default=int(os.environ.get('FOLD', os.environ.get('LAMEM_FOLD', 1))),
-        help='Fold number (1–5 for lamem; 1–10 for combined_lamem_memcat).',
+        default=int(os.environ.get("FOLD", os.environ.get("LAMEM_FOLD", 1))),
+        help="Fold number (1–5 for lamem; 1–10 for combined_lamem_memcat).",
     )
     parser.add_argument(
-        '--img_root',
-        default=os.environ.get('LAMEM_IMG_ROOT', f'{_data_dir_default}/lamem/images/'),
-        help='LaMem images root directory.',
+        "--img_root",
+        default=os.environ.get("LAMEM_IMG_ROOT", f"{_data_dir_default}/lamem/images/"),
+        help="LaMem images root directory.",
     )
     parser.add_argument(
-        '--memcat_img_root',
-        default=os.environ.get('MEMCAT_IMG_ROOT', f'{_data_dir_default}/memcat/images/'),
-        help='MemCat images root directory (only used for combined_lamem_memcat).',
+        "--memcat_img_root",
+        default=os.environ.get("MEMCAT_IMG_ROOT", f"{_data_dir_default}/memcat/images/"),
+        help="MemCat images root directory (only used for combined_lamem_memcat).",
     )
     parser.add_argument(
-        '--memcat_meta_csv',
-        default=os.environ.get('MEMCAT_META_CSV', f'{_data_dir_default}/memcat/memcat_image_data.csv'),
-        help='Path to memcat_image_data.csv with category/subcategory columns '
-             '(only used for combined_lamem_memcat).',
+        "--memcat_meta_csv",
+        default=os.environ.get(
+            "MEMCAT_META_CSV", f"{_data_dir_default}/memcat/memcat_image_data.csv"
+        ),
+        help="Path to memcat_image_data.csv with category/subcategory columns "
+        "(only used for combined_lamem_memcat).",
     )
     parser.add_argument(
-        '--out_dir',
+        "--out_dir",
         default=None,
-        help='Directory where .pt embedding files are written.  '
-             'Defaults to <data_dir>/lamem/embeddings/ for lamem and '
-             '<data_dir>/combined_lamem_memcat/embeddings/ for combined_lamem_memcat.',
+        help="Directory where .pt embedding files are written.  "
+        "Defaults to <data_dir>/lamem/embeddings/ for lamem and "
+        "<data_dir>/combined_lamem_memcat/embeddings/ for combined_lamem_memcat.",
     )
     parser.add_argument(
-        '--backbone_checkpoint',
-        default=f'{_data_dir_default}/lamem/epoch97_dora_params.pth',
-        help='CLIP-HBA checkpoint path (only used for clip_hba_mem).',
+        "--backbone_checkpoint",
+        default=f"{_data_dir_default}/lamem/epoch97_dora_params.pth",
+        help="CLIP-HBA checkpoint path (only used for clip_hba_mem).",
     )
     parser.add_argument(
-        '--batch_size',
+        "--batch_size",
         type=int,
         default=256,
-        help='Batch size for backbone inference during extraction.',
+        help="Batch size for backbone inference during extraction.",
     )
     parser.add_argument(
-        '--num_workers',
+        "--num_workers",
         type=int,
         default=8,
-        help='DataLoader worker count for image loading.',
+        help="DataLoader worker count for image loading.",
     )
     parser.add_argument(
-        '--cuda',
+        "--cuda",
         type=int,
-        default=int(os.environ.get('CUDA_DEVICE', 0)),
-        help='GPU index (0, 1, …).  Use 2 for CPU.',
+        default=int(os.environ.get("CUDA_DEVICE", 0)),
+        help="GPU index (0, 1, …).  Use 2 for CPU.",
     )
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=1,
-        help='Random seed (affects reproducibility of any stochastic ops).',
+        help="Random seed (affects reproducibility of any stochastic ops).",
     )
     args = parser.parse_args()
     data_dir = args.data_dir
 
     seed_everything(args.seed)
 
-    device = torch.device('cpu') if args.cuda == 2 else torch.device(f'cuda:{args.cuda}')
+    device = torch.device("cpu") if args.cuda == 2 else torch.device(f"cuda:{args.cuda}")
 
     fold = args.fold
 
-    if args.training_data == 'lamem':
-        train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
-        val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
-        test_csv  = f'{data_dir}/lamem/lamem_test_{fold}.csv'
-        img_root      = args.img_root
+    if args.training_data == "lamem":
+        train_csv = f"{data_dir}/lamem/lamem_train_{fold}.csv"
+        val_csv = f"{data_dir}/lamem/lamem_val_{fold}.csv"
+        test_csv = f"{data_dir}/lamem/lamem_test_{fold}.csv"
+        img_root = args.img_root
         memcat_meta_csv = None
-        out_dir = args.out_dir or f'{data_dir}/lamem/embeddings/'
+        out_dir = args.out_dir or f"{data_dir}/lamem/embeddings/"
     else:  # combined_lamem_memcat
-        train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-        val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-        test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+        train_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv"
+        val_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv"
+        test_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv"
         img_root = {
-            'lamem':  args.img_root,
-            'memcat': args.memcat_img_root,
+            "lamem": args.img_root,
+            "memcat": args.memcat_img_root,
         }
         memcat_meta_csv = args.memcat_meta_csv
-        out_dir = args.out_dir or f'{data_dir}/combined_lamem_memcat/embeddings/'
+        out_dir = args.out_dir or f"{data_dir}/combined_lamem_memcat/embeddings/"
 
     extract_embeddings_for_fold(
         model_type=args.model_type,
@@ -369,5 +374,5 @@ def main() -> None:
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
