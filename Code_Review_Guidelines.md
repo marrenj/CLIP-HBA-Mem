@@ -40,12 +40,6 @@ Sources: Google Engineering Practices, Microsoft Code Review Guidelines, NeurIPS
 - Steps to run and test the application locally are documented
 - Makefile or equivalent exists for common operations (train, evaluate, test)
 
-### Testing & CI
-- Unit tests exist for utility functions, data loading, and model components
-- Integration tests verify end-to-end pipeline (expected shapes/ranges)
-- Tests run automatically via CI on every PR
-- Test coverage is measured and reviewed
-
 ### Security & Dependencies
 - No hardcoded secrets, API keys, or absolute user paths
 - `torch.load` uses `weights_only=True` for untrusted data; no unsafe `pickle.load`
@@ -99,13 +93,41 @@ Sources: Google Engineering Practices, Microsoft Code Review Guidelines, NeurIPS
 - Critical parameters are easy to find and modify
 - Config values not hardcoded inline (use config files or argparse)
 
-### Reproducibility
-- All scripts set seeds for `torch`, `numpy`, `random`, and `torch.cuda` (including `torch.backends.cudnn.deterministic`)
-- Seeds documented and logged with each run
-- GPU type, training time, and hardware requirements documented
-- Results reported with variance across runs (mean +/- std), not single-run cherry picks
-- Every result traceable to the exact code, data, and parameters that produced it
-- Results regenerable from a single command using logged configs
+### Reproducibility (NeurIPS Checklist, Papers With Code, Wilson et al.)
+
+#### Random Seeds & Determinism
+- All scripts set seeds for `torch`, `numpy`, `random`, and `torch.cuda`
+- `torch.backends.cudnn.deterministic = True` and `torch.backends.cudnn.benchmark = False` set where needed
+- Seeds documented and logged with every run
+- Seeding happens before any data loading or model initialization
+
+#### Compute Budget
+- GPU type and count documented (e.g., 1x NVIDIA A6000)
+- Approximate wall-clock training time per fold / full run reported
+- Total GPU hours reported for full experiment (training + evaluation)
+- Hardware requirements stated so others know what is needed to reproduce
+
+#### Statistical Significance
+- Results reported with variance across runs or folds (mean +/- std)
+- Not single-run cherry picks; number of runs/folds clearly stated
+- Comparison baselines evaluated under the same protocol and splits
+- Negative results and failed configurations documented where relevant
+
+#### Result Traceability
+- Every result traceable to the exact code (git commit hash), data, and parameters that produced it
+- Results regenerable from a single command using logged configs alone
+- Config files or argparse defaults capture the full set of hyperparameters (including unchanged defaults)
+- No manual steps required between "clone repo" and "reproduce result"
+
+#### Dataset Versioning
+- Dataset version or content hash tracked and logged per run
+- Train/val/test split files saved, versioned, and committed (not regenerated randomly)
+- Any preprocessing or filtering steps scripted and reproducible
+- Raw data is immutable and never overwritten by pipeline steps
+
+#### Environment Reproducibility
+- Conda environment with a pinned `environment.yml` or `requirements.txt` capturing exact versions
+- SLURM scripts activate the correct conda environment and load required modules
 
 ### Experiment Tracking
 - Every run logs: config/hyperparams, train loss, val loss, metrics, epoch, and wall time

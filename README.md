@@ -2,57 +2,95 @@
     <img src="./CLIP-HBA/figures/hba_logo.png" width="400">
 </h1>
 
-
-
 <h1 align="center">
-    <p> Shifting Attention to You: Personalized Brain-Inspired AI Models <br></p>
+    <p> Memorability Prediction with CLIP-HBA </p>
 </h1>
 
 <h3 align="center">
-    <p> Stephen Chong Zhao, Yang Hu, Jason Lee, Andrew Bender, Trisha Mazumdar, Mark Wallace, David A. Tovar <br></p>
+    Tovar Brain Inspired AI Lab, Vanderbilt University
 </h3>
 
-<p align="center">
-  <a href="https://arxiv.org/abs/2502.04658"><b>Paper</b></a> |
-  <a href="#citation"><b>BibTeX</b></a>
-</p>
+---
 
+## Overview
 
+**CLIP-HBA-Mem** predicts image memorability using brain-aligned visual representations from [CLIP-HBA](https://github.com/stephenczhao/CLIP-HBA-Official). This repository is a fork of [CLIP-HBA-Official](https://github.com/stephenczhao/CLIP-HBA-Official), which provides the training and inference pipelines for **CLIP-HBA-Behavior** (behavioral fine-tuning) and **CLIP-HBA-MEG** (MEG neural dynamics fine-tuning). The memorability prediction work built on top of this foundation is the contribution of this project.
 
-# Overview
+The core idea: a frozen CLIP-HBA-Behavior backbone extracts semantically-grounded image features, and a lightweight MLP head is trained on top to produce human memorability scores. By leveraging representations already aligned with human perception, CLIP-HBA-Mem captures what makes images memorable without requiring end-to-end training.
 
-This repository contains all the key training, inference, and visualization script for behavioral/meg fine-tuning with the CLIP architecture. 
+## How It Relates to CLIP-HBA
 
-# Abstract
+The [CLIP-HBA framework](https://arxiv.org/abs/2502.04658) fine-tunes CLIP (ViT-L/14) on human data in two stages:
 
-The integration of human and artificial intelligence represents a scientific opportunity to advance our understanding of information processing, as each system offers unique computational insights that can enhance and inform the other. The synthesis of human cognitive principles with artificial intelligence has the potential to produce more interpretable and functionally aligned computational models, while simultaneously providing a formal framework for investigating the neural mechanisms underlying perception, learning, and decision-making through systematic model comparisons and representational analyses. In this study, we introduce personalized brain-inspired modeling that integrates human behavioral embeddings and neural data to align with cognitive processes. We took a stepwise approach, fine-tuning the Contrastive Language-Image Pre-training (CLIP) model with large-scale behavioral decisions, group-level neural data, and finally, participant-level neural data within a broader framework that we have named CLIP-Human-Based Analysis (CLIP-HBA). We found that fine-tuning on behavioral data enhances its ability to predict human similarity judgments while indirectly aligning it with dynamic representations captured via MEG. To further gain mechanistic insights into the temporal evolution of cognitive processes, we introduced a model specifically fine-tuned on millisecond-level MEG neural dynamics (CLIP-HBA-MEG). This model resulted in enhanced temporal alignment with human neural processing while still showing improvement on behavioral alignment. Finally, we trained individualized models on participant-specific neural data, effectively capturing individualized neural dynamics and highlighting the potential for personalized AI systems. These personalized systems have far-reaching implications for the fields of medicine, cognitive research, human-computer interfaces, and AI development.
+1. **CLIP-HBA-Behavior** -- Fine-tuned on the THINGS dataset using large-scale behavioral similarity judgments and DoRA adaptation. Produces static embeddings aligned with human perceptual similarity.
+2. **CLIP-HBA-MEG** -- Fine-tuned on millisecond-level MEG neural data, capturing the temporal dynamics of visual processing.
 
+Both of these training pipelines are preserved in this fork under `CLIP-HBA/train_behavior.py` and `CLIP-HBA/train_meg_group.py` / `CLIP-HBA/train_meg_individual.py`. See the [original repository](https://github.com/stephenczhao/CLIP-HBA-Official) and [paper](https://arxiv.org/abs/2502.04658) for full details.
 
-# Code Structure: 
+**CLIP-HBA-Mem** builds on this by adding a memorability prediction MLP head on top of the frozen CLIP-HBA-Behavior backbone.
+
+**MEGMem** builds on this by adding a memorability prediction MLP head on top of the frozen CLIP-HBA-MEG backbone at each timepoint.
+
+## Memorability Models
+
+Three model variants are supported:
+
+| Model | Backbone | Adaptation | Description |
+|-------|----------|------------|-------------|
+| `clip_hba_mem` | CLIP-HBA-Behavior | DoRA (frozen) | MLP head on brain-aligned features |
+| `clip_frozen_mlp` | Vanilla CLIP ViT-L/14 | None (frozen) | Baseline: MLP head on standard CLIP features |
+| `perceptclip` | CLIP ViT-L/14 | LoRA | LoRA-adapted CLIP + MLP head ([HuggingFace](https://huggingface.co/PerceptCLIP/PerceptCLIP_Memorability)) |
+
+All models are trained with MSE loss, early stopping (patience 20), and 10-fold cross-validation on LaMem + MemCat (~60K images combined). Evaluation uses Spearman rank correlation against ground-truth memorability scores.
+
+### MEG-Based Memorability
+
+CLIP-HBA-Mem also includes a temporal memorability analysis using CLIP-HBA-MEG embeddings. An MLP head is trained independently at each of **281 MEG timepoints** (-100 to 1300 ms at 5 ms resolution), producing a time-resolved profile of how memorability information emerges in brain-aligned representations.
+
+## Repository Structure
 
 ```
-├───CLIP-HBA
-│   ├───Data # Location for data and annotations
-│   │   
-│   ├───figures # Used for figure generation
-│   ├───functions # Source code for training and inference pipelines
-│   │   
-│   ├───models # Location for pre-trained/fine-tuned model weights (.pth files)
-│   │   ├───cliphba_behavior_text_encoder # partial text encoder model weights for the CLIP-HBA-Behavior model, for MEG training
-│   │   ├───cliphba_meg_individual # Individual model weights
-│   
-├───output # output location for all the inference pipelines
-|
-└───src # all model backend source code for CLIP
-    |...
-    ├───models # Model archiectures
-    ...
-
+CLIP-HBA-Mem/
+├── CLIP-HBA/
+│   ├── train_mem.py                    # Train CLIP-HBA-Mem (main entry point)
+│   ├── train_mem_meg.py                # Train MEG-based memorability (per timepoint)
+│   ├── train_clip_mlp.py               # Train frozen CLIP baseline
+│   ├── inference_mem.py                # Run memorability inference
+│   ├── inference_mem_meg.py            # Run MEG memorability inference
+│   ├── extract_embeddings.py           # Precompute backbone embeddings
+│   ├── extract_embeddings_meg.py       # Precompute MEG embeddings
+│   │
+│   ├── functions/                      # Core pipelines
+│   │   ├── train_mem_pipeline.py       # Memorability model definitions & training loop
+│   │   ├── train_behavior_things_pipeline.py   # CLIP-HBA-Behavior training
+│   │   ├── train_meg_things_pipeline.py        # CLIP-HBA-MEG training
+│   │   └── inference_*.py              # Inference pipelines
+│   │
+│   ├── Data/                           # Datasets, annotations, splits
+│   │   ├── combined_lamem_memcat/      # 10-fold cross-validation splits
+│   │   └── ...
+│   │
+│   ├── models/                         # Trained checkpoints
+│   │
+│   ├── train_behavior.py               # CLIP-HBA-Behavior training (from upstream)
+│   ├── train_meg_group.py              # CLIP-HBA-MEG group training (from upstream)
+│   ├── train_meg_individual.py         # CLIP-HBA-MEG individual training (from upstream)
+│   ├── inference_behavior.py           # Behavior inference (from upstream)
+│   ├── inference_meg_group.py          # MEG group inference (from upstream)
+│   └── inference_meg_individual.py     # MEG individual inference (from upstream)
+│
+├── src/                                # CLIP model architectures
+│   └── models/CLIPs/
+│       ├── clip/                       # Vanilla CLIP
+│       ├── clip_hba/                   # CLIP-HBA-Behavior (with DoRA)
+│       └── clip_hba_meg/               # CLIP-HBA-MEG (temporal)
+│
+└── requirements.txt
 ```
 
-# Environment Setup:
+## Environment Setup
 
-```
+```bash
 conda create -n cliphba python=3.11
 conda activate cliphba
 
@@ -60,49 +98,91 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install -r requirements.txt
 ```
 
-download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs)
+Download the pretrained CLIP-HBA model weights from [here](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs).
 
+## Usage
 
-# Running the Model
+### Training Memorability Models
 
-## Training
+```bash
+cd CLIP-HBA
 
-#### Behavioral Training - Things Dataset
-```
-python /CLIP-HBA/train_behavior.py
-```
+# Train CLIP-HBA-Mem (DoRA backbone, fold 1)
+FOLD=1 python train_mem.py
 
+# Train frozen CLIP baseline (fold 1)
+FOLD=1 python train_clip_mlp.py
 
-#### MEG Group Level Training - Things MEG Data with 3 Participants
-```
-python /CLIP-HBA/train_meg_group.py
-```
-
-#### MEG Group Level Training - 118 Images with 15 Participants
-```
-python /CLIP-HBA/train_meg_individual.py
+# Train MEG memorability head (single timepoint, single fold)
+FOLD=1 TIMEPOINT_MS=100 python train_mem_meg.py
 ```
 
-## Inference
+Training uses precomputed embeddings by default for speed. To precompute embeddings:
 
-#### CLIP-HBA-Behavior Inference - Behavior/Static Embeddings and RDMs 
-```
-python /CLIP-HBA/inference_behavior.py
-```
-
-#### CLIP-HBA-MEG (Group-Trained) Inference - MEG/Dynamic Embeddings and RDMs 
-```
-python /CLIP-HBA/inference_meg_group.py
+```bash
+python extract_embeddings.py        # CLIP-HBA-Behavior embeddings
+python extract_embeddings_meg.py    # CLIP-HBA-MEG embeddings (281 timepoints)
 ```
 
-#### CLIP-HBA-MEG (Individuals) inference - MEG/Dynamic Individual Embeddings and RDMs for each Participants
-```
-python /CLIP-HBA/inference_meg_individual.py
+### Inference
+
+```bash
+cd CLIP-HBA
+
+# CLIP-HBA-Mem on LaMem test set (fold 1)
+python inference_mem.py --dataset lamem --fold 1
+
+# All 5 LaMem folds
+python inference_mem.py --dataset lamem --fold all
+
+# Combined LaMem+MemCat, all 10 folds
+python inference_mem.py --dataset combined_lamem_memcat --fold all
+
+# Frozen CLIP baseline
+python inference_mem.py --dataset lamem --fold 1 \
+    --model_type clip_frozen_mlp \
+    --checkpoint ./models/clip_frozen_mlp_fold{fold}.pth
+
+# PerceptCLIP from HuggingFace
+python inference_mem.py --dataset lamem --fold 1 \
+    --model_type perceptclip --checkpoint huggingface
+
+# THINGS dataset
+python inference_mem.py --dataset things --things_img_dir ./Data/Things1854
+
+# MemCat dataset
+python inference_mem.py --dataset memcat
 ```
 
-# Results
+### CLIP-HBA Training (from upstream)
 
-## Memorability Prediction (CLIP-HBA-Mem)
+The original CLIP-HBA training pipelines are preserved:
+
+```bash
+cd CLIP-HBA
+
+# Behavioral fine-tuning on THINGS
+python train_behavior.py
+
+# MEG group-level fine-tuning
+python train_meg_group.py
+
+# MEG individual-level fine-tuning
+python train_meg_individual.py
+```
+
+## Datasets
+
+| Dataset | Images | Splits | Description |
+|---------|--------|--------|-------------|
+| [LaMem](http://memorability.csail.mit.edu/) | 58,741 | 5-fold | Large-scale memorability dataset |
+| [MemCat](https://github.com/gestaltrevision/memcat) | 10,000 | -- | Categorized memorability dataset |
+| Combined | ~68,741 | 10-fold | LaMem + MemCat merged splits |
+| [THINGS](https://osf.io/jum2f/) | 1,854 | -- | Object concepts (used for behavioral & MEG training) |
+
+## Results
+
+### Memorability Prediction (CLIP-HBA-Mem)
 
 Performance is measured as Spearman rank correlation (ρ) between predicted and ground-truth memorability scores.  
 All models use 5-fold cross-validation on LaMem and 10-fold on the combined LaMem+MemCat split.
@@ -115,14 +195,14 @@ All models use 5-fold cross-validation on LaMem and 10-fold on the combined LaMe
 
 > **Note:** Exact values depend on the random seed and hardware. Results above are representative ranges from training on a single NVIDIA A100 (40 GB). To reproduce, run `sbatch CLIP-HBA/train_mem.slurm` with the default config.
 
-## Pre-trained Weights
+### Pre-trained Weights
 
 Backbone checkpoint (`epoch97_dora_params.pth`) and trained MLP heads are available at:  
 [Google Drive — model weights](https://drive.google.com/drive/folders/1rw3MCI8mFKiA0WFgdofCngzzSgNKspBs)
 
 Place downloaded `.pth` files under `CLIP-HBA/Data/` and update the `backbone_checkpoint` path in `train_mem.py` accordingly.
 
-## Hardware & Timing
+### Hardware & Timing
 
 | Task | Hardware | Approximate wall time |
 |------|----------|-----------------------|
@@ -130,10 +210,16 @@ Place downloaded `.pth` files under `CLIP-HBA/Data/` and update the `backbone_ch
 | Embedding extraction (all folds) | 1× A100 40 GB | ~1 h |
 | Inference on LaMem test set | CPU or single GPU | < 5 min |
 
----
+## Opensourced Training Data
 
-# Citation: 
-```
+- **THINGS MEG Data**: Download from [Figshare](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
+- **THINGS Image Set**: Download from [OSF](https://osf.io/jum2f/)
+
+## Citation
+
+If you use CLIP-HBA-Mem, please cite the CLIP-HBA paper:
+
+```bibtex
 @misc{zhao2025shiftingattentionyoupersonalized,
       title={Shifting Attention to You: Personalized Brain-Inspired AI Models}, 
       author={Stephen Chong Zhao and Yang Hu and Jason Lee and Andrew Bender and Trisha Mazumdar and Mark Wallace and David A. Tovar},
@@ -145,11 +231,6 @@ Place downloaded `.pth` files under `CLIP-HBA/Data/` and update the `backbone_ch
 }
 ```
 
+## Acknowledgments
 
-# Opensourced Training Data
-
-## THINGS
-Download Things-MEG Data from [here](https://plus.figshare.com/articles/dataset/THINGS-data_MEG_preprocessed_dataset/21215246?backTo=/collections/THINGS-data_A_multimodal_collection_of_large-scale_datasets_for_investigating_object_representations_in_brain_and_behavior/6161151)
-
-## Things Image Set
-Things Image Dataset can be downloaded from [here](https://osf.io/jum2f/)
+This project is built on the [CLIP-HBA framework](https://github.com/stephenczhao/CLIP-HBA-Official) developed by Zhao et al. at Vanderbilt University.
