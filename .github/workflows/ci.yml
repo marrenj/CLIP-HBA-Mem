@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install ruff==0.4.4
+        run: pip install ruff==0.15.10
 
       - name: Check style
         run: ruff check CLIP-HBA/ src/
