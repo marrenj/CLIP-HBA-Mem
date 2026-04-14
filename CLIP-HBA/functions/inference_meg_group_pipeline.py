@@ -13,7 +13,7 @@ from tqdm import tqdm
 import random
 import math
 
-from functions.spose_dimensions import *
+from functions.spose_dimensions import classnames66
 
 import sys
 sys.path.append('../')
@@ -383,7 +383,7 @@ def run_meg_group_inference(config):
 
     # Initialize classnames
     if config['n_dim'] == 66:
-        classnames = [x[0] for x in classnames66]
+        classnames = list(classnames66)
     else:
         raise ValueError("n_dim must be 66")
     

@@ -1,0 +1,16 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# E/W: pycodestyle   F: pyflakes   I: isort
+select = ["E", "F", "W", "I"]
+# Long lines are tolerated in scientific code (array literals, long config dicts)
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py re-exports are intentional; star imports in src/ are legacy CLIP code
+"src/models/**/__init__.py" = ["F401"]
+"src/models/**/clip.py" = ["F401", "F811"]
+# Notebooks and figure scripts have relaxed rules
+"CLIP-HBA/figures/**" = ["E402", "F401"]

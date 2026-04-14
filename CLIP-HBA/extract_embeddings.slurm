@@ -52,7 +52,8 @@ set -euo pipefail
 module load python/3.11.5
 source ~/envs/clip_hba/bin/activate
 
-cd /panfs/accrepfs.vampire/home/jenkm22/CLIP-HBA-Mem/CLIP-HBA
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
 
 echo "=========================================="
 echo "Job ID       : $SLURM_JOB_ID"

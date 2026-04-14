@@ -1,4 +1,5 @@
 import csv
+import logging
 import torch
 import torch.nn as nn
 from torch.nn import DataParallel
@@ -28,6 +29,8 @@ from functions.spose_dimensions import classnames66
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
+
+logger = logging.getLogger(__name__)
 
 
 class MemDataset(Dataset):
@@ -225,7 +228,7 @@ class MLP(nn.Module):
         self.relu2 = nn.ReLU()
         self.fc3 = nn.Linear(hidden_dim2, output_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.relu1(x)
         x = self.dropout(x)
@@ -294,7 +297,7 @@ class CLIPFrozenMLP(nn.Module):
             p.requires_grad = False
         n_frozen = (sum(1 for p in self.vision_model.parameters())
                     + sum(1 for p in self.visual_projection.parameters()))
-        print(f'[Backbone] Loaded {model_name} — {n_frozen} tensors frozen')
+        logger.info('[Backbone] Loaded %s — %d tensors frozen', model_name, n_frozen)
 
         # --- MLP head ---
         layers = []
@@ -304,7 +307,7 @@ class CLIPFrozenMLP(nn.Module):
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
-        print(f'[MLP] hidden_dims={hidden_dims}  activation={activation}  dropout={dropout_rate}')
+        logger.info('[MLP] hidden_dims=%s  activation=%s  dropout=%s', hidden_dims, activation, dropout_rate)
 
     def train(self, mode=True):
         super().train(mode)
@@ -383,16 +386,20 @@ class CLIPHBAMem(nn.Module):
                           n_transformer_layers=transformer_layers,
                           r=rank)
 
-        state_dict = torch.load(backbone_checkpoint, map_location='cpu')
+        # weights_only=False is required here: DoRA checkpoints store non-tensor
+        # metadata (e.g. magnitude vectors wrapped in custom classes) that cannot
+        # be safely unpickled with weights_only=True.  Only load checkpoints from
+        # trusted sources (i.e. those produced by this codebase).
+        state_dict = torch.load(backbone_checkpoint, map_location='cpu', weights_only=False)
         # Strip DataParallel 'module.' prefix if present
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
         self.backbone.load_state_dict(state_dict, strict=False)
-        print(f'[Backbone] Loaded {len(state_dict)} keys from {backbone_checkpoint}')
+        logger.info('[Backbone] Loaded %d keys from %s', len(state_dict), backbone_checkpoint)
 
         for p in self.backbone.parameters():
             p.requires_grad = False
         n_frozen = sum(1 for p in self.backbone.parameters() if not p.requires_grad)
-        print(f'[Backbone] {n_frozen} tensors frozen')
+        logger.info('[Backbone] %d tensors frozen', n_frozen)
 
         # --- MLP head (dynamically constructed) ---
         layers = []
@@ -402,7 +409,7 @@ class CLIPHBAMem(nn.Module):
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
-        print(f'[MLP] hidden_dims={hidden_dims}  dropout={dropout_rate}')
+        logger.info('[MLP] hidden_dims=%s  dropout=%s', hidden_dims, dropout_rate)
 
     def train(self, mode=True):
         super().train(mode)
@@ -410,18 +417,24 @@ class CLIPHBAMem(nn.Module):
         self.backbone.eval()
         return self
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             emb = self.backbone.clip_model.encode_image(x, self.backbone.pos_embedding)  # [B, 768]
         return self.mlp_head(emb)  # [B, 1]
 
-    def mlp_parameters(self):
+    def mlp_parameters(self) -> list:
         """Returns only the MLP head parameters (used by the optimiser)."""
         return list(self.mlp_head.parameters())
 
 
-def evaluate_mem_model(model, data_loader, device, criterion, save_csv_path=None):
-    """Returns avg MSE loss, Spearman rank correlation, and prediction std on data_loader."""
+def evaluate_mem_model(
+    model: nn.Module,
+    data_loader: DataLoader,
+    device: torch.device,
+    criterion: nn.Module,
+    save_csv_path: 'str | None' = None,
+) -> 'tuple[float, float, float]':
+    """Evaluate model on data_loader and return (avg_mse, spearman_rho, pred_std)."""
     model.eval()
     total_loss = 0.0
     all_preds = []
@@ -456,13 +469,23 @@ def evaluate_mem_model(model, data_loader, device, criterion, save_csv_path=None
     return avg_loss, rho, pred_std
 
 
-def train_mem_model(model, train_loader, val_loader, device, optimizer, criterion,
-                    epochs, early_stopping_patience=10,
-                    checkpoint_path='clip_hba_mem.pth',
-                    test_loader=None,
-                    fold=1, preds_dir=None, run_timestamp=None,
-                    save_checkpoint=True):
-    """Train model and return the Spearman ρ recorded at the best-loss checkpoint."""
+def train_mem_model(
+    model: nn.Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    device: torch.device,
+    optimizer: torch.optim.Optimizer,
+    criterion: nn.Module,
+    epochs: int,
+    early_stopping_patience: int = 10,
+    checkpoint_path: 'str | None' = 'clip_hba_mem.pth',
+    test_loader: 'DataLoader | None' = None,
+    fold: int = 1,
+    preds_dir: 'str | None' = None,
+    run_timestamp: 'str | None' = None,
+    save_checkpoint: bool = True,
+) -> 'tuple[float, float]':
+    """Train model and return (best_val_loss, best_spearman_rho) at the best checkpoint."""
     run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     if checkpoint_path is not None:
         checkpoint_path = str(pathlib.Path(checkpoint_path))
@@ -489,12 +512,13 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
 
     # Initial evaluation
     save_path = os.path.join(preds_dir, f'epoch_000_fold{fold}.csv') if preds_dir else None
-    print('*' * 40)
-    print('Initial evaluation')
+    logger.info('*' * 40)
+    logger.info('Initial evaluation')
     init_val_loss, init_rho, init_pred_std = evaluate_mem_model(
         model, val_loader, device, criterion, save_path)
-    print(f'Val MSE: {init_val_loss:.4f}  |  Spearman r: {init_rho:.4f}  |  Pred std: {init_pred_std:.4f}')
-    print('*' * 40 + '\n')
+    logger.info('Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f',
+                init_val_loss, init_rho, init_pred_std)
+    logger.info('*' * 40)
 
     for epoch in range(epochs):
         model.train()
@@ -519,11 +543,8 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
         avg_val_loss, rho, pred_std = evaluate_mem_model(
             model, val_loader, device, criterion, save_path)
 
-        print(f'Epoch {epoch+1}: '
-              f'Train MSE: {avg_train_loss:.4f}  |  '
-              f'Val MSE: {avg_val_loss:.4f}  |  '
-              f'Spearman r: {rho:.4f}  |  '
-              f'Pred std: {pred_std:.4f}')
+        logger.info('Epoch %d: Train MSE: %.4f  |  Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f',
+                    epoch + 1, avg_train_loss, avg_val_loss, rho, pred_std)
 
         if history_writer is not None:
             history_writer.writerow({
@@ -542,20 +563,29 @@ def train_mem_model(model, train_loader, val_loader, device, optimizer, criterio
             if save_checkpoint and checkpoint_path is not None:
                 chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
                 os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
-                torch.save(model.state_dict(), chk_path)
-                print(f'  -> Checkpoint saved (epoch {epoch+1})')
+                torch.save({
+                    'epoch': epoch + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_loss': avg_val_loss,
+                    'spearman_rho': rho,
+                    'rng_state': torch.get_rng_state(),
+                    'cuda_rng_state': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    'numpy_rng_state': np.random.get_state(),
+                    'timestamp': run_timestamp,
+                }, chk_path)
+                logger.info('  -> Checkpoint saved (epoch %d)', epoch + 1)
         else:
             epochs_no_improve += 1
-        print(f'Epochs without improvement: {epochs_no_improve}')
+        logger.info('Epochs without improvement: %d', epochs_no_improve)
 
         if epochs_no_improve == early_stopping_patience:
-            print(f'\nEarly stopping triggered at epoch {epoch+1}')
+            logger.info('Early stopping triggered at epoch %d', epoch + 1)
             if test_loader is not None:
                 test_loss, test_rho, test_pred_std = evaluate_mem_model(
                     model, test_loader, device, criterion)
-                print(f'Final Test MSE: {test_loss:.4f}  |  '
-                      f'Final Test Spearman r: {test_rho:.4f}  |  '
-                      f'Final Test Pred std: {test_pred_std:.4f}')
+                logger.info('Final Test MSE: %.4f  |  Final Test Spearman r: %.4f  |  Final Test Pred std: %.4f',
+                            test_loss, test_rho, test_pred_std)
             if history_file is not None:
                 history_file.close()
             break
@@ -581,30 +611,46 @@ def _seed_worker(worker_id):
     _random.seed(worker_seed)
 
 
-def run_mem_training(config):
+def run_mem_training(config: dict) -> float:
     """Run memorability training with the given configuration dict.
 
+    Sets up file-based logging when ``config['log_path']`` is provided, then
+    delegates to :func:`_run_mem_training_impl`.
+
+    Args:
+        config: Training configuration dictionary. See ``train_mem.py`` for all
+            supported keys and their defaults.
+
     Returns:
-        best_rho (float): Spearman ρ recorded at the best-loss checkpoint.
+        best_rho: Spearman ρ recorded at the best-loss checkpoint.
     """
-    _saved_stdout = sys.stdout
-    log_file = None
     run_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path = config.get('log_path', None)
+    file_handler = None
+
     if log_path:
         fold = config.get('fold', 1)
         base, ext = os.path.splitext(log_path)
         log_path = f'{base}_fold{fold}_{run_timestamp}{ext}'
         os.makedirs(os.path.dirname(log_path) or '.', exist_ok=True)
-        log_file = open(log_path, 'w', encoding='utf-8', buffering=1)  # line-buffered
-        sys.stdout = log_file
+        file_handler = logging.FileHandler(log_path, encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s  %(levelname)s  %(message)s'))
+        # Attach to the root logger so all module loggers write to the file.
+        logging.getLogger().addHandler(file_handler)
+
+    # Ensure at least INFO-level output if no handlers are configured yet.
+    if not logging.getLogger().handlers or all(
+        isinstance(h, logging.FileHandler) for h in logging.getLogger().handlers
+    ):
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s  %(levelname)s  %(message)s')
 
     try:
         return _run_mem_training_impl(config, run_timestamp)
     finally:
-        sys.stdout = _saved_stdout
-        if log_file is not None:
-            log_file.close()
+        if file_handler is not None:
+            file_handler.close()
+            logging.getLogger().removeHandler(file_handler)
 
 
 def _run_mem_training_impl(config, run_timestamp):
@@ -634,7 +680,8 @@ def _run_mem_training_impl(config, run_timestamp):
         val_dataset   = MemDataset(csv_file=config['val_csv'],   img_root=img_root, memcat_meta_csv=memcat_meta_csv)
         test_dataset  = MemDataset(csv_file=config['test_csv'],  img_root=img_root, memcat_meta_csv=memcat_meta_csv)
 
-    print(f'\n[Data] Train: {len(train_dataset)} samples | Val: {len(val_dataset)} samples | Test: {len(test_dataset)} samples')
+    logger.info('[Data] Train: %d samples | Val: %d samples | Test: %d samples',
+                len(train_dataset), len(val_dataset), len(test_dataset))
 
     # Optional: subsample training set (useful for fast hyperparameter sweeps)
     train_frac = config.get('train_fraction', 1.0)
@@ -652,17 +699,18 @@ def _run_mem_training_impl(config, run_timestamp):
                 .sample(n=n_sub, random_state=config['random_seed'])
                 .reset_index(drop=True)
             )
-        print(f'[Data] Subsampled train set: {n_sub}/{n_orig} ({train_frac:.0%})')
+        logger.info('[Data] Subsampled train set: %d/%d (%.0f%%)', n_sub, n_orig, train_frac * 100)
 
     _, feat0, score0 = train_dataset[0]
-    print(f'\n[Data] sample feature tensor shape: {tuple(feat0.shape)}')
-    print(f'\n[Data] sample score: {score0.item():.4f}')
+    logger.info('[Data] sample feature tensor shape: %s', tuple(feat0.shape))
+    logger.info('[Data] sample score: %.4f', score0.item())
     if use_precomputed:
         _underlying = train_dataset.dataset if isinstance(train_dataset, Subset) else train_dataset
-        print(f'\n[Data] Score range: min {_underlying.scores.min():.4f} to max {_underlying.scores.max():.4f}')
+        logger.info('[Data] Score range: min %.4f to max %.4f',
+                    _underlying.scores.min(), _underlying.scores.max())
     else:
         scores = train_dataset.annotations['score']
-        print(f'\n[Data] Score range: min {scores.min():.4f} to max {scores.max():.4f}')
+        logger.info('[Data] Score range: min %.4f to max %.4f', scores.min(), scores.max())
 
     # EmbeddingDataset serves in-memory tensors — no disk I/O per batch, so
     # multiple workers only add IPC overhead.  Image-based datasets benefit
@@ -731,36 +779,38 @@ def _run_mem_training_impl(config, run_timestamp):
 
     # Use DataParallel if using all GPUs
     if config['cuda'] == -1:
-        print(f'Using {torch.cuda.device_count()} GPUs')
+        logger.info('Using %d GPUs', torch.cuda.device_count())
         model = DataParallel(model)
 
     model.to(device)
 
-    print('\n[Model] Probe forward pass...')
+    logger.info('[Model] Probe forward pass...')
     model.eval()
     with torch.no_grad():
         if use_precomputed:
             _dummy_emb = torch.randn(2, config.get('input_dim', 768)).to(device)
             _out = model(_dummy_emb)
-            print(f'[Model] MLPOnlyHead output shape: {tuple(_out.shape)}  '
-                  f'(squeezed: {tuple(_out.squeeze(1).shape)})')
-            print(f'[Model] Output range: [{_out.min().item():.4f}, {_out.max().item():.4f}]')
+            logger.info('[Model] MLPOnlyHead output shape: %s  (squeezed: %s)',
+                        tuple(_out.shape), tuple(_out.squeeze(1).shape))
+            logger.info('[Model] Output range: [%.4f, %.4f]',
+                        _out.min().item(), _out.max().item())
         else:
             _dummy_image = torch.randn(2, 3, 224, 224).to(device)
             if model_type == 'clip_hba_mem':
                 _raw = model.module if isinstance(model, DataParallel) else model
                 _emb = _raw.backbone.clip_model.encode_image(
                     _dummy_image, _raw.backbone.pos_embedding)
-                print(f'[Model] encode_image output shape: {tuple(_emb.shape)}')
+                logger.info('[Model] encode_image output shape: %s', tuple(_emb.shape))
             elif model_type == 'clip_frozen_mlp':
                 _raw = model.module if isinstance(model, DataParallel) else model
                 _vis_out = _raw.vision_model(_dummy_image)
                 _emb = _raw.visual_projection(_vis_out[1])
-                print(f'[Model] vision_model + projection output shape: {tuple(_emb.shape)}')
+                logger.info('[Model] vision_model + projection output shape: %s', tuple(_emb.shape))
             _out = model(_dummy_image)
-            print(f'[Model] Raw output shape: {tuple(_out.shape)}  '
-                  f'(squeezed: {tuple(_out.squeeze(1).shape)})')
-            print(f'[Model] Output range: [{_out.min().item():.4f}, {_out.max().item():.4f}]')
+            logger.info('[Model] Raw output shape: %s  (squeezed: %s)',
+                        tuple(_out.shape), tuple(_out.squeeze(1).shape))
+            logger.info('[Model] Output range: [%.4f, %.4f]',
+                        _out.min().item(), _out.max().item())
     model.train()
 
     # Build optimizer — unwrap DataParallel to reach mlp_parameters()
@@ -775,11 +825,10 @@ def _run_mem_training_impl(config, run_timestamp):
         weight_decay=config.get('weight_decay', 1e-2),
     )
 
-    print('\nModel Configuration:')
-    print('--------------------')
+    logger.info('Model Configuration:')
     for key, value in config.items():
-        print(f'  {key}: {value}')
-    print(f'\nTrainable parameters: {count_trainable_parameters(model):,}\n')
+        logger.info('  %s: %s', key, value)
+    logger.info('Trainable parameters: %s', f'{count_trainable_parameters(model):,}')
 
     best_rho = train_mem_model(
         model, train_loader, val_loader, device,
