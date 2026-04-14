@@ -1,24 +1,21 @@
-import math
-import os
-import random
-import sys
-
-import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
-from functions.spose_dimensions import *
-from PIL import Image
-from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+import pandas as pd
+from PIL import Image
+import os
+import numpy as np
+from torch.nn import functional as F
+import copy
 from tqdm import tqdm
-
-sys.path.append("../")
-import warnings
-
+import random
+import math
+from functions.spose_dimensions import *
+import sys
+sys.path.append('../')
 from src.models.CLIPs.clip_hba import clip
-
+import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
 import shutil
 
@@ -38,7 +35,6 @@ def seed_everything(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-
 def load_clip_to_cpu(backbone_name):
     url = clip._MODELS[backbone_name]
     model_path = clip._download(url, os.path.expanduser("~/.cache/clip"))
@@ -55,9 +51,8 @@ def load_clip_to_cpu(backbone_name):
 
     return model
 
-
 class CLIPHBA(nn.Module):
-    def __init__(self, classnames, backbone_name="RN50", pos_embedding=False):
+    def __init__(self, classnames, backbone_name='RN50', pos_embedding=False):
         super().__init__()
 
         self.num_clip = len(classnames)
@@ -68,9 +63,10 @@ class CLIPHBA(nn.Module):
         # Disable gradients for all parameters first
         for param in self.clip_model.parameters():
             param.requires_grad = False
-
+        
         # Tokenize all prompts at once and store them as a tensor
         self.tokenized_prompts = torch.stack([clip.tokenize(classname) for classname in classnames])
+
 
     def forward(self, image):
         if self.clip_model.training:
@@ -87,7 +83,7 @@ class CLIPHBA(nn.Module):
         # print(f"pred_score: {pred_score}")
 
         return pred_score
-
+    
 
 class DoRALayer(nn.Module):
     def __init__(self, original_layer, r=8, dora_alpha=16, dora_dropout=0.1):
@@ -107,7 +103,7 @@ class DoRALayer(nn.Module):
         # Store S as a trainable parameter
         self.m = nn.Parameter(S)  # [out_features]
         # Store D as a buffer (since we don't want to update it directly)
-        self.register_buffer("D", D)  # [in_features, out_features]
+        self.register_buffer('D', D)  # [in_features, out_features]
 
         # LoRA adaptation of D
         self.delta_D_A = nn.Parameter(torch.zeros(self.r, original_layer.out_features))
@@ -137,9 +133,7 @@ class DoRALayer(nn.Module):
         D_new = self.D + delta_D  # [in_features, out_features]
 
         # Normalize columns of D_new
-        D_norms = (
-            torch.norm(D_new, dim=0, keepdim=True) + 1e-8
-        )  # [1, out_features], add epsilon to avoid division by zero
+        D_norms = torch.norm(D_new, dim=0, keepdim=True) + 1e-8  # [1, out_features], add epsilon to avoid division by zero
         D_normalized = D_new / D_norms  # [in_features, out_features]
 
         # Reconstruct the adapted weight
@@ -168,9 +162,9 @@ class DoRALayer(nn.Module):
         return F.linear(x, W, self.bias)
 
 
-def apply_dora_to_ViT(
-    model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123
-):
+    
+
+def apply_dora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123):
 
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
@@ -200,6 +194,7 @@ def apply_dora_to_ViT(
         # Replace the original layer with a DoRALayer
         dora_layer = DoRALayer(target_layer, r=r, dora_dropout=dora_dropout)
         target_block.attn.out_proj = dora_layer
+
 
 
 def switch_dora_layers(model, freeze_all=True, dora_state=True):
@@ -240,29 +235,20 @@ class ImageDataset(Dataset):
         """
         if os.path.isdir(img_path):
             self.img_dir = img_path
-            self.image_names = [
-                img
-                for img in sorted(os.listdir(img_path))
-                if img.lower().endswith((".png", ".jpg", ".jpeg"))
-            ]
-        elif os.path.isfile(img_path) and img_path.lower().endswith((".png", ".jpg", ".jpeg")):
+            self.image_names = [img for img in sorted(os.listdir(img_path))
+                                if img.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        elif os.path.isfile(img_path) and img_path.lower().endswith(('.png', '.jpg', '.jpeg')):
             self.img_dir, single_image_name = os.path.split(img_path)
             self.image_names = [single_image_name]  # Single image in a list
         else:
-            raise ValueError(
-                f"Provided path '{img_path}' is neither a directory nor a file, or file type is not supported."
-            )
+            raise ValueError(f"Provided path '{img_path}' is neither a directory nor a file, or file type is not supported.")
 
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.52997664, 0.48070561, 0.41943838],
-                    std=[0.27608301, 0.26593025, 0.28238822],
-                ),
-            ]
-        )
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
+                                 std=[0.27608301, 0.26593025, 0.28238822])
+        ])
 
     def __len__(self):
         return len(self.image_names)
@@ -270,25 +256,24 @@ class ImageDataset(Dataset):
     def __getitem__(self, index):
         image_name = self.image_names[index]
         img_path = os.path.join(self.img_dir, image_name)
-        image = Image.open(img_path).convert("RGB")  # Ensure image is RGB
+        image = Image.open(img_path).convert('RGB')  # Ensure image is RGB
         image = self.transform(image)
-
+        
         return image_name, image
-
-
+    
 def run_image(model, data_loader, save_folder, device=torch.device("cuda:0")):
     model.eval()
     model.to(device)
     image_names = []
     predictions = []
-
-    progress_bar = tqdm(enumerate(data_loader), total=len(data_loader), desc="Processing images")
-
+    
+    progress_bar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Processing images")
+    
     with torch.no_grad():
         for batch_idx, (batch_image_names, batch_images) in progress_bar:
             batch_images = batch_images.to(device)
             batch_outputs = model(batch_images)
-
+            
             predictions.extend(batch_outputs.cpu().numpy())
             image_names.extend(batch_image_names)
 
@@ -297,25 +282,25 @@ def run_image(model, data_loader, save_folder, device=torch.device("cuda:0")):
         # predictions = (predictions - predictions.min()) / (predictions.max() - predictions.min())
 
         hba_embedding = pd.DataFrame(predictions)
-        hba_embedding["image"] = image_names
-        hba_embedding = hba_embedding[["image"] + [col for col in hba_embedding if col != "image"]]
+        hba_embedding['image'] = image_names
+        hba_embedding = hba_embedding[['image'] + [col for col in hba_embedding if col != 'image']]
         emb_save_path = f"{save_folder}/static_embedding.csv"
         hba_embedding.to_csv(emb_save_path, index=False)
         print(f"Embedding saved to {emb_save_path}")
 
-        # rdm generation
+        #rdm generation
         rdm = 1 - np.corrcoef(np.array(predictions))
         np.fill_diagonal(rdm, 0)
         rdm_save_path = f"{save_folder}/static_rdm.npy"
         np.save(rdm_save_path, rdm)
         print(f"RDM saved to {rdm_save_path}")
-        print("-----------------------------------------------\n")
+        print(f"-----------------------------------------------\n")
 
 
 def run_behavior_inference(config):
     """
     Run inference using the provided configuration.
-
+    
     Args:
         config (dict): Configuration dictionary containing:
             - img_dir (str): Directory containing input images
@@ -328,37 +313,42 @@ def run_behavior_inference(config):
     """
     # Create the directory if it doesn't exist
     print(f"\nEmbedding will be saved to folder: {config['save_folder']}\n")
-    if os.path.exists(config["save_folder"]):
-        shutil.rmtree(config["save_folder"])
-    os.makedirs(config["save_folder"])
+    if os.path.exists(config['save_folder']):
+        shutil.rmtree(config['save_folder'])
+    os.makedirs(config['save_folder'])
 
     classnames = classnames66
-
+    
     # Determine pos_embedding based on backbone
-    pos_embedding = False if config["backbone"] == "RN50" else True
+    pos_embedding = False if config['backbone'] == 'RN50' else True
     print(f"pos_embedding is {pos_embedding}")
 
     # Initialize model
-    model = CLIPHBA(
-        classnames=classnames, backbone_name=config["backbone"], pos_embedding=pos_embedding
-    )
+    model = CLIPHBA(classnames=classnames, 
+                    backbone_name=config['backbone'], 
+                    pos_embedding=pos_embedding)
 
     # Load HBA weights if specified
-    if config["load_hba"]:
-        apply_dora_to_ViT(model, n_vision_layers=2, n_transformer_layers=1, r=32, dora_dropout=0.1)
-        model_state_dict = torch.load(config["model_path"])
-        adjusted_state_dict = {
-            key.replace("module.", ""): value for key, value in model_state_dict.items()
-        }
+    if config['load_hba']:
+        apply_dora_to_ViT(model, 
+                         n_vision_layers=2, 
+                         n_transformer_layers=1, 
+                         r=32, 
+                         dora_dropout=0.1)
+        model_state_dict = torch.load(config['model_path'])
+        adjusted_state_dict = {key.replace("module.", ""): value 
+                             for key, value in model_state_dict.items()}
         model.load_state_dict(adjusted_state_dict)
     else:
         print(f"Using Original CLIP {config['backbone']}")
 
-    device = torch.device(config["cuda"])
-
+    device = torch.device(config['cuda'])
+    
     # Load the dataset
-    dataset = ImageDataset(config["img_dir"])
-    data_loader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=False)
-
+    dataset = ImageDataset(config['img_dir'])
+    data_loader = DataLoader(dataset, 
+                           batch_size=config['batch_size'], 
+                           shuffle=False)
+    
     # Run the model and save output embeddings
-    run_image(model, data_loader, config["save_folder"], device=device)
+    run_image(model, data_loader, config['save_folder'], device=device)

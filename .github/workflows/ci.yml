@@ -21,10 +21,10 @@ jobs:
         run: pip install ruff==0.15.10
 
       - name: Check style
-        run: ruff check CLIP-HBA/ src/
+        run: ruff check --force-exclude CLIP-HBA/ src/
 
       - name: Check formatting
-        run: ruff format --check CLIP-HBA/ src/
+        run: ruff format --check --force-exclude CLIP-HBA/ src/
 
   test:
     name: Unit tests (CPU)

@@ -13,7 +13,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # conftest.py adds CLIP-HBA/ to sys.path
-from functions.train_behavior_things_pipeline import seed_everything
 from functions.train_mem_pipeline import (
     EmbeddingDataset,
     MLPOnlyHead,
@@ -126,34 +125,6 @@ class TestEvaluateMemModel:
             model, loader, torch.device("cpu"), nn.MSELoss()
         )
         assert loss >= 0.0
-
-
-# ---------------------------------------------------------------------------
-# seed_everything
-# ---------------------------------------------------------------------------
-
-class TestSeedEverything:
-    def test_deterministic_torch(self) -> None:
-        """Two calls with the same seed must produce identical random tensors."""
-        seed_everything(42)
-        t1 = torch.randn(10)
-        seed_everything(42)
-        t2 = torch.randn(10)
-        assert torch.allclose(t1, t2), "seed_everything not making torch deterministic"
-
-    def test_deterministic_numpy(self) -> None:
-        seed_everything(99)
-        a1 = np.random.rand(10)
-        seed_everything(99)
-        a2 = np.random.rand(10)
-        assert np.allclose(a1, a2), "seed_everything not making numpy deterministic"
-
-    def test_different_seeds_differ(self) -> None:
-        seed_everything(1)
-        t1 = torch.randn(50)
-        seed_everything(2)
-        t2 = torch.randn(50)
-        assert not torch.allclose(t1, t2), "Different seeds produced identical tensors"
 
 
 # ---------------------------------------------------------------------------

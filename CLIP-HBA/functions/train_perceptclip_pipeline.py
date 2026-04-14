@@ -1,3 +1,7 @@
+import csv
+import datetime
+import os
+
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -141,7 +145,7 @@ def train_mem_model(
     # Initial evaluation
     print("*" * 40)
     print("Initial evaluation")
-    best_val_loss, best_rho = evaluate_mem_model(model, val_loader, device, criterion)
+    best_val_loss, best_rho = evaluate_perceptclip(model, val_loader, device, criterion)
     print(f"Val MSE: {best_val_loss:.4f}  |  Spearman r: {best_rho:.4f}")
     print("*" * 40 + "\n")
 
@@ -167,7 +171,7 @@ def train_mem_model(
                 pbar.set_postfix({"loss": loss.item()})
 
         avg_train_loss = total_loss / len(train_loader.dataset)
-        avg_val_loss, rho = evaluate_mem_model(model, val_loader, device, criterion, save_path)
+        avg_val_loss, rho = evaluate_perceptclip(model, val_loader, device, criterion, save_path)
 
         print(
             f"Epoch {epoch + 1}: "
@@ -206,7 +210,7 @@ def train_mem_model(
 
         if epochs_no_improve == early_stopping_patience:
             print(f"\nEarly stopping triggered at epoch {epoch + 1}")
-            test_loss, test_rho = evaluate_mem_model(model, test_loader, device, criterion)
+            test_loss, test_rho = evaluate_perceptclip(model, test_loader, device, criterion)
             print(f"Final Test MSE: {test_loss:.4f}  |  Final Test Spearman r: {test_rho:.4f}")
             history_file.close()
             break

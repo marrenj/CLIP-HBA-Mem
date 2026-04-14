@@ -1,28 +1,29 @@
-import math
-import os
-import random
-import sys
-
-import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
-from functions.spose_dimensions import *
-from PIL import Image
-from torch.nn import DataParallel
-from torch.nn import functional as F
-from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
+import pandas as pd
+from PIL import Image
+import os
+import numpy as np
+
+from torch.nn import functional as F
 from tqdm import tqdm
 
-sys.path.append("../")
-import warnings
+from torch.optim import AdamW
+from torch.nn import DataParallel
 
+import random
+import math
+
+from functions.spose_dimensions import *
+
+import sys
+sys.path.append('../')
+from src.models.CLIPs.clip_hba_meg import clip
 from scipy.ndimage import gaussian_filter1d
 
-from src.models.CLIPs.clip_hba_meg import clip
-
+import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
@@ -55,6 +56,7 @@ def load_rdm(rdm_path):
     min_val = np.min(rdm)
     max_val = np.max(rdm)
 
+
     if min_val != 0 or max_val != 1:
         rdm = (rdm - min_val) / (max_val - min_val)  # Scale to [0, 1]
         rdm_max = np.max(rdm)
@@ -65,25 +67,24 @@ def load_rdm(rdm_path):
 
     return rdm
 
-
 def get_richness(rdms, zero_ms_position):
 
     p_richness = []
 
     for p in range(rdms.shape[0]):
+
         rdm = rdms[p, :, :, :]
         richness = np.mean(rdm, axis=(1, 2))
         p_richness.append(richness)
 
     avg_richness = np.mean(p_richness, axis=0)
 
-    avg_richness_min_maxed = (avg_richness - avg_richness.min()) / (
-        avg_richness.max() - avg_richness.min()
-    )
+    avg_richness_min_maxed = (avg_richness - avg_richness.min()) / (avg_richness.max() - avg_richness.min())
 
     avg_richness_min_maxed[:zero_ms_position] = 0
 
     # avg_richness_min_maxed = gaussian_filter1d(avg_richness_min_maxed, sigma=3)
+
 
     return avg_richness_min_maxed
 
@@ -95,15 +96,17 @@ def compute_average_participant_neural_richness(rdms):
         def flatten_rdm(rdm):
             triu_indices = np.triu_indices(rdm.shape[-1], k=1)
             return rdm[..., triu_indices[0], triu_indices[1]]
-
+        
         def compute_time_rsm(rdm):
             rdm_flat = flatten_rdm(rdm)
             time_rsm = np.corrcoef(rdm_flat)
             return time_rsm
-
+        
         time_rsm = compute_time_rsm(rdm)
         richness = np.mean(time_rsm, axis=1)
         return richness
+
+
 
     # input rdm should be 3 dimensional: (n_participants, n_timepoints, n_objects, n_objects)
     richness_per_participant = []
@@ -116,33 +119,26 @@ def compute_average_participant_neural_richness(rdms):
     avg_richness = (avg_richness - avg_richness.min()) / (avg_richness.max() - avg_richness.min())
     return avg_richness
 
-
 class DynamicDataset(Dataset):
     def __init__(self, csv_file, img_dir, rdm_dir):
         self.img_dir = img_dir
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.52997664, 0.48070561, 0.41943838],
-                    std=[0.27608301, 0.26593025, 0.28238822],
-                ),
-            ]
-        )
-
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)), 
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
+                                 std=[0.27608301, 0.26593025, 0.28238822])
+        ])
+        
         # Read the CSV file and store the image names and indices
         self.annotations = pd.read_csv(csv_file, index_col=0)
         self.image_names = self.annotations.iloc[:, 0].tolist()
         self.image_indices = self.annotations.index.tolist()
-
+        
         # Load the full RDM matrix
         self.rdms = load_rdm(rdm_dir)
-
+        
         # Create a mapping from image names to indices for efficient lookup
-        self.image_name_to_index = {
-            name: idx for name, idx in zip(self.image_names, self.image_indices)
-        }
+        self.image_name_to_index = {name: idx for name, idx in zip(self.image_names, self.image_indices)}
 
     def __len__(self):
         return len(self.image_names)
@@ -158,21 +154,7 @@ class DynamicDataset(Dataset):
 
         return image_name, image, image_name_index
 
-
-def load_clip_to_cpu(
-    backbone_name,
-    weighting_matrix,
-    ms_start=-100,
-    ms_step=5,
-    ms_end=1300,
-    train_start=100,
-    train_step=25,
-    train_end=800,
-    train_window_size=30,
-    beta=None,
-    noise_level=None,
-    visual_scaler=None,
-):
+def load_clip_to_cpu(backbone_name, weighting_matrix, ms_start=-100, ms_step=5, ms_end=1300, train_start=100, train_step=25, train_end=800, train_window_size=30, beta=None, noise_level=None, visual_scaler = None):
     url = clip._MODELS[backbone_name]
     model_path = clip._download(url, os.path.expanduser("~/.cache/clip"))
 
@@ -184,67 +166,26 @@ def load_clip_to_cpu(
     except RuntimeError:
         state_dict = torch.load(model_path, map_location="cpu")
 
-    model = clip.build_model(
-        state_dict or model.state_dict(),
-        weighting_matrix=weighting_matrix,
-        ms_start=ms_start,
-        ms_step=ms_step,
-        ms_end=ms_end,
-        train_start=train_start,
-        train_step=train_step,
-        train_end=train_end,
-        train_window_size=train_window_size,
-        beta=beta,
-        noise_level=noise_level,
-        visual_scaler=visual_scaler,
-    )
+    model = clip.build_model(state_dict or model.state_dict(), weighting_matrix=weighting_matrix, ms_start=ms_start, ms_step=ms_step, ms_end=ms_end, train_start=train_start, train_step=train_step, train_end=train_end, train_window_size=train_window_size, beta=beta, noise_level=noise_level, visual_scaler=visual_scaler)
 
     return model
 
-
 class CLIPHBA(nn.Module):
-    def __init__(
-        self,
-        classnames,
-        backbone_name="RN50",
-        pos_embedding=False,
-        ms_start=-100,
-        ms_step=5,
-        ms_end=1300,
-        train_start=100,
-        train_step=25,
-        train_end=800,
-        train_window_size=30,
-        beta=None,
-        weighting_matrix=None,
-        noise_level=None,
-        visual_scaler=None,
-    ):
+    def __init__(self, classnames, backbone_name='RN50', pos_embedding=False, ms_start=-100, ms_step=5, ms_end=1300, train_start=100, train_step=25, train_end=800, train_window_size=30, beta=None, weighting_matrix=None, noise_level=None, visual_scaler=None):
         super().__init__()
 
         self.num_clip = len(classnames)
-        self.clip_model = load_clip_to_cpu(
-            backbone_name,
-            weighting_matrix,
-            ms_start=ms_start,
-            ms_step=ms_step,
-            ms_end=ms_end,
-            train_start=train_start,
-            train_step=train_step,
-            train_end=train_end,
-            train_window_size=train_window_size,
-            beta=beta,
-            noise_level=noise_level,
-            visual_scaler=visual_scaler,
-        )
+        self.clip_model = load_clip_to_cpu(backbone_name, weighting_matrix, ms_start=ms_start, ms_step=ms_step, ms_end=ms_end, train_start=train_start, train_step=train_step, train_end=train_end, train_window_size=train_window_size, beta=beta, noise_level=noise_level, visual_scaler=visual_scaler)
         self.pos_embedding = pos_embedding
 
         # Disable gradients for all parameters first
         for param in self.clip_model.parameters():
             param.requires_grad = False
-
+        
         # Tokenize all prompts at once and store them as a tensor
         self.tokenized_prompts = torch.stack([clip.tokenize(classname) for classname in classnames])
+
+
 
     def forward(self, image):
         if self.clip_model.training:
@@ -254,9 +195,7 @@ class CLIPHBA(nn.Module):
         tokenized_prompts = self.tokenized_prompts.to(image.device)
 
         # Process all tokenized prompts in a single forward pass
-        pred_emb_3d, pred_rdm_3d, pred_feature_3d = self.clip_model(
-            image, tokenized_prompts, self.pos_embedding
-        )
+        pred_emb_3d, pred_rdm_3d, pred_feature_3d = self.clip_model(image, tokenized_prompts, self.pos_embedding)
 
         # # if pred_emb_3d has nan, raise error:
         # if torch.isnan(pred_emb_3d).any():
@@ -265,6 +204,7 @@ class CLIPHBA(nn.Module):
         pred_emb_3d = pred_emb_3d.float()
 
         return pred_emb_3d, pred_rdm_3d, pred_feature_3d
+    
 
 
 class DoRALayer(nn.Module):
@@ -285,7 +225,7 @@ class DoRALayer(nn.Module):
         # Store S as a trainable parameter
         self.m = nn.Parameter(S)  # [out_features]
         # Store D as a buffer (since we don't want to update it directly)
-        self.register_buffer("D", D)  # [in_features, out_features]
+        self.register_buffer('D', D)  # [in_features, out_features]
 
         # LoRA adaptation of D
         self.delta_D_A = nn.Parameter(torch.zeros(self.r, original_layer.out_features))
@@ -315,9 +255,7 @@ class DoRALayer(nn.Module):
         D_new = self.D + delta_D  # [in_features, out_features]
 
         # Normalize columns of D_new
-        D_norms = (
-            torch.norm(D_new, dim=0, keepdim=True) + 1e-8
-        )  # [1, out_features], add epsilon to avoid division by zero
+        D_norms = torch.norm(D_new, dim=0, keepdim=True) + 1e-8  # [1, out_features], add epsilon to avoid division by zero
         D_normalized = D_new / D_norms  # [in_features, out_features]
 
         # Reconstruct the adapted weight
@@ -346,9 +284,9 @@ class DoRALayer(nn.Module):
         return F.linear(x, W, self.bias)
 
 
-def apply_dora_to_ViT(
-    model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123
-):
+    
+
+def apply_dora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123):
 
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
@@ -378,6 +316,7 @@ def apply_dora_to_ViT(
         # Replace the original layer with a DoRALayer
         dora_layer = DoRALayer(target_layer, r=r, dora_dropout=dora_dropout)
         target_block.attn.out_proj = dora_layer
+
 
 
 def switch_dora_layers(model, freeze_all=True, d_state=True, m_state=False):
@@ -411,12 +350,14 @@ def switch_dora_layers(model, freeze_all=True, d_state=True, m_state=False):
             recursive_unfreeze_dora(model)
 
 
+
+
 def unfreeze_weighting_parameters(model):
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
     else:
         model_module = model
-
+    
     model_module.clip_model.weighting_matrix.requires_grad = True
     model_module.clip_model.noise_level.requires_grad = False
 
@@ -431,15 +372,14 @@ def freeze_text_encoder(model):
         model_module = model
 
     for name, param in model_module.clip_model.transformer.named_parameters():
-        param.requires_grad = False
-
+            param.requires_grad = False
 
 def unfreeze_parameters(model):
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
     else:
         model_module = model
-
+    
     model_module.clip_model.logit_scale.requires_grad = True
     for param in model_module.clip_model.dim_weights_matrix:
         param.requires_grad = True
@@ -450,17 +390,18 @@ def get_logit_scale_parameter(model):
         model_module = model.module
     else:
         model_module = model
-
+    
     return model_module.clip_model.logit_scale
-
 
 def get_dim_weight_parameter(model):
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
     else:
         model_module = model
-
+    
     return model_module.clip_model.dim_weights_matrix
+
+
 
 
 def count_trainable_parameters(model):
@@ -468,70 +409,69 @@ def count_trainable_parameters(model):
     # return sum(p.numel() for p in model.parameters())
 
 
+
 def calculate_cosine_rdm(predictions):
     # Calculate the pairwise cosine similarity between predictions
-    similarity_matrix = torch.nn.functional.cosine_similarity(
-        predictions.unsqueeze(1), predictions.unsqueeze(0), dim=2
-    )
-
+    similarity_matrix = torch.nn.functional.cosine_similarity(predictions.unsqueeze(1), predictions.unsqueeze(0), dim=2)
+    
     # Convert cosine similarity to dissimilarity (distance)
     dissimilarity_matrix = 1 - similarity_matrix
-
+    
     # Set the diagonal elements to zero
     rdm = dissimilarity_matrix.fill_diagonal_(0)
-
+    
     return rdm
 
 
 def calculate_pearson_rdm(predictions):
     # Calculate the mean for each prediction (batch of vectors)
     mean_predictions = torch.mean(predictions, dim=1, keepdim=True)
-
+    
     # Subtract the mean from predictions (centering)
     centered_predictions = predictions - mean_predictions
-
+    
     # Calculate the pairwise dot product of centered predictions
     dot_product = torch.mm(centered_predictions, centered_predictions.t())
-
+    
     # Calculate the norms (magnitude) of each prediction
     norms = torch.norm(centered_predictions, dim=1, keepdim=True)
-
+    
     # Calculate the Pearson correlation
     similarity_matrix = dot_product / (norms * norms.t())
-
+    
     # Convert Pearson correlation to Pearson distance
     dissimilarity_matrix = 1 - similarity_matrix
-
+    
     # Set the diagonal elements to zero
     rdm = dissimilarity_matrix.fill_diagonal_(0)
-
+    
     return rdm
+
 
 
 def ms_to_timepoints(ms, ms_start=-100, ms_step=5):
     timepoint = (ms - ms_start) // ms_step
     return timepoint
 
-
-def compute_rdm_generalization(rdm, zero_ms_position):
+def compute_rdm_generalization(rdm, zero_ms_position): 
     def flatten_rdm(rdm):
         triu_indices = np.triu_indices(rdm.shape[-1], k=1)
         return rdm[..., triu_indices[0], triu_indices[1]]
-
+    
     def compute_time_rsm(rdm):
         rdm_flat = flatten_rdm(rdm)
         time_rsm = np.corrcoef(rdm_flat)
         # time_rsm = 1 - squareform(pdist(rdm_flat, metric='euclidean'))
         return time_rsm
+    
 
     p_generalization = []
     for p in range(rdm.shape[0]):
         time_rsm = compute_time_rsm(rdm[p, :, :, :])
         generalization = np.mean(time_rsm, axis=1)
-        generalization_min_maxed = (generalization - generalization.min()) / (
-            generalization.max() - generalization.min()
-        )
+        generalization_min_maxed = (generalization - generalization.min()) / (generalization.max() - generalization.min())
         p_generalization.append(generalization_min_maxed)
+
 
     generalization = np.mean(p_generalization, axis=0)
 
@@ -540,75 +480,63 @@ def compute_rdm_generalization(rdm, zero_ms_position):
     # generalization = gaussian_filter1d(generalization, sigma=3)
 
     return generalization
-
-
+    
 class PearsonMSELoss3D(nn.Module):
-    def __init__(
-        self,
-        dynamic_penalty,
-        initial_pearson_loss=1,
-        initial_mse_loss=1,
-        initial_generalization_loss=1,
-        p_weight=1,
-        m_weight=1,
-        g_weight=1,
-    ):
+    def __init__(self, dynamic_penalty, initial_pearson_loss=1, initial_mse_loss=1, initial_generalization_loss=1, p_weight=1, m_weight=1, g_weight=1):
         super(PearsonMSELoss3D, self).__init__()
         self.initial_pearson_loss = initial_pearson_loss
         self.initial_mse_loss = initial_mse_loss
         self.initial_generalization_loss = initial_generalization_loss
-        self.dynamic_penalty = torch.tensor(
-            dynamic_penalty / dynamic_penalty.sum(), dtype=torch.float
-        )
+        self.dynamic_penalty = torch.tensor(dynamic_penalty/dynamic_penalty.sum(), dtype=torch.float)
         self.p_weight = p_weight
         self.m_weight = m_weight
         self.g_weight = g_weight
         # print(f"Dynamic Penalty: {dynamic_penalty.shape}")
+        
 
+    
     def pearson_loss(self, x_flat, y_flat):
         mean_x = torch.mean(x_flat)
         mean_y = torch.mean(y_flat)
         xm = x_flat - mean_x
         ym = y_flat - mean_y
         r_num = torch.sum(xm * ym)
-        r_den = torch.sqrt(torch.sum(xm**2) * torch.sum(ym**2))
+        r_den = torch.sqrt(torch.sum(xm ** 2) * torch.sum(ym ** 2))
         correlation = r_num / r_den
         pearson_loss = 1 - correlation
         return pearson_loss
 
     def pearson_mse_weighted_loss(self, pred, target):
         # pred and target shapes are [n_timepoints, n_objects, n_objects]
-
+    
         n_timepoints, batch, _ = pred.shape
         device = pred.device
         triu_indices = torch.triu_indices(batch, batch, offset=1).to(device)
-
+        
         pred_upper = pred[:, triu_indices[0], triu_indices[1]]
         target_upper = target[:, triu_indices[0], triu_indices[1]]
 
         # Compute Pearson loss across timepoints
-        pearson_losses = torch.stack(
-            [self.pearson_loss(pred_upper[i], target_upper[i]) for i in range(n_timepoints)]
-        )
+        pearson_losses = torch.stack([
+            self.pearson_loss(pred_upper[i], target_upper[i])
+            for i in range(n_timepoints)
+        ])
 
         # Compute MSE loss across each time point
-        mse_losses_within_timepoints = torch.stack(
-            [F.mse_loss(pred_upper[i], target_upper[i]) for i in range(n_timepoints)]
-        )
+        mse_losses_within_timepoints = torch.stack([
+            F.mse_loss(pred_upper[i], target_upper[i])
+            for i in range(n_timepoints)
+        ])
 
-        weighted_pearson_losses = torch.sum(
-            pearson_losses * self.dynamic_penalty.to(pearson_losses.device)
-        )
-        weighted_mse_losses = torch.sum(
-            mse_losses_within_timepoints
-            * self.dynamic_penalty.to(mse_losses_within_timepoints.device)
-        )
+        weighted_pearson_losses = torch.sum(pearson_losses * self.dynamic_penalty.to(pearson_losses.device))
+        weighted_mse_losses = torch.sum(mse_losses_within_timepoints * self.dynamic_penalty.to(mse_losses_within_timepoints.device))
 
         # average_pearson_loss = torch.mean(pearson_losses)
         # average_mse_loss = torch.mean(mse_losses_within_timepoints)
 
-        return weighted_pearson_losses, weighted_mse_losses
 
+        return weighted_pearson_losses, weighted_mse_losses
+    
     def compute_time_generalization(self, rdm):
         def flatten_rdm(rdm):
             triu_indices = torch.triu_indices(rdm.shape[-1], rdm.shape[-1], offset=1)
@@ -625,37 +553,25 @@ class PearsonMSELoss3D(nn.Module):
 
         rsm = compute_time_rsm(rdm)
         generalization = torch.mean(rsm, dim=1)
-
+        
         return generalization
+    
 
     def forward(self, x, y):
         p_loss, mse_loss = self.pearson_mse_weighted_loss(x, y)
 
         x_generalization = self.compute_time_generalization(x)
         y_generalization = self.compute_time_generalization(y)
-        g_loss = self.pearson_loss(x_generalization, y_generalization) + nn.MSELoss()(
-            x_generalization, y_generalization
-        )
+        g_loss = self.pearson_loss(x_generalization, y_generalization) + nn.MSELoss()(x_generalization, y_generalization)
 
-        total_loss = (
-            self.p_weight * p_loss / self.initial_pearson_loss
-            + self.m_weight * mse_loss / self.initial_mse_loss
-            + self.g_weight * g_loss / self.initial_generalization_loss
-        )
+        total_loss = self.p_weight * p_loss/self.initial_pearson_loss + self.m_weight * mse_loss/self.initial_mse_loss + self.g_weight * g_loss/self.initial_generalization_loss
+
 
         return total_loss, mse_loss, p_loss, g_loss
-
+    
 
 class PearsonMSELongLoss(nn.Module):
-    def __init__(
-        self,
-        initial_pearson_loss=1,
-        initial_mse_loss=1,
-        initial_generalization_loss=1,
-        p_weight=1,
-        m_weight=1,
-        g_weight=1,
-    ):
+    def __init__(self, initial_pearson_loss=1, initial_mse_loss=1, initial_generalization_loss = 1, p_weight=1, m_weight=1, g_weight = 1):
         super(PearsonMSELongLoss, self).__init__()
         self.initial_pearson_loss = initial_pearson_loss
         self.initial_mse_loss = initial_mse_loss
@@ -664,24 +580,25 @@ class PearsonMSELongLoss(nn.Module):
         self.m_weight = m_weight
         self.g_weight = g_weight
 
+    
     def pearson_loss(self, x_flat, y_flat):
         mean_x = torch.mean(x_flat)
         mean_y = torch.mean(y_flat)
         xm = x_flat - mean_x
         ym = y_flat - mean_y
         r_num = torch.sum(xm * ym)
-        r_den = torch.sqrt(torch.sum(xm**2) * torch.sum(ym**2))
+        r_den = torch.sqrt(torch.sum(xm ** 2) * torch.sum(ym ** 2))
         correlation = r_num / r_den
         pearson_loss = 1 - correlation
         return pearson_loss
 
     def pearson_mse_long_loss(self, pred, target):
         # pred and target shapes are [n_timepoints, n_objects, n_objects]
-
+    
         n_timepoints, batch, _ = pred.shape
         device = pred.device
         triu_indices = torch.triu_indices(batch, batch, offset=1).to(device)
-
+        
         pred_upper = pred[:, triu_indices[0], triu_indices[1]]
         target_upper = target[:, triu_indices[0], triu_indices[1]]
 
@@ -698,10 +615,11 @@ class PearsonMSELongLoss(nn.Module):
         slice_mse = []
         for t in range(n_timepoints):
             slice_mse.append(F.mse_loss(pred_upper[t], target_upper[t]))
-
+        
         mse_loss = torch.mean(torch.stack(slice_mse))
 
         return pearson_loss, mse_loss
+    
 
     def compute_time_generalization(self, rdm):
         # input shape of rdm: [n_timepoints, n_objects, n_objects]
@@ -720,8 +638,9 @@ class PearsonMSELongLoss(nn.Module):
 
         rsm = compute_time_rsm(rdm)
         generalization = torch.mean(rsm, dim=1)
-
+        
         return generalization
+    
 
     def forward(self, x, y):
         p_loss, mse_loss = self.pearson_mse_long_loss(x, y)
@@ -733,37 +652,21 @@ class PearsonMSELongLoss(nn.Module):
         # g_loss = self.pearson_loss(x_generalization, y_generalization) + 0.2 * (torch.mean(x_generalization) - torch.mean(y_generalization))**2
         g_loss = self.pearson_loss(x_generalization, y_generalization)
 
-        total_loss = (
-            self.p_weight * p_loss / self.initial_pearson_loss
-            + self.m_weight * mse_loss / self.initial_mse_loss
-            + self.g_weight * g_loss / self.initial_generalization_loss
-        )
 
+        total_loss = self.p_weight * p_loss/self.initial_pearson_loss + self.m_weight * mse_loss/self.initial_mse_loss + self.g_weight * g_loss/self.initial_generalization_loss
+        
         return total_loss, mse_loss, p_loss, g_loss
 
+    
 
-def train_model(
-    model,
-    train_loader,
-    test_loader,
-    device,
-    criterion,
-    p_weight,
-    m_weight,
-    g_weight,
-    optimizer_0,
-    optimizer_1,
-    epochs,
-    fw_tuning_epochs,
-    rdms,
-    sample_timepoints,
-    ms_start,
-    ms_end,
-    ms_step,
-    window_size,
-    early_stopping_patience=5,
-    checkpoint_path="clip_hba_model_cv.pth",
-):
+
+
+
+
+
+
+
+def train_model(model, train_loader, test_loader, device, criterion, p_weight, m_weight, g_weight, optimizer_0, optimizer_1, epochs, fw_tuning_epochs, rdms, sample_timepoints, ms_start, ms_end, ms_step, window_size, early_stopping_patience=5, checkpoint_path='clip_hba_model_cv.pth'):
 
     model.train()
     best_test_loss = p_weight + m_weight + g_weight
@@ -776,46 +679,27 @@ def train_model(
     target_rdms = rdms[:, starting_timepoint:ending_timepoint, :, :]
     # print("target rdm shape: ", target_rdms.shape)
 
-    train_rdms = np.mean(
-        target_rdms[:-1, :, :, :], axis=0
-    )  # first 2 participants' MEG Rdms for training
-    test_rdms = np.mean(
-        target_rdms[:-1, :, :, :], axis=0
-    )  # using 3rd participant's RDM for testing, 4th quality is bad
+    train_rdms = np.mean(target_rdms[:-1, :, :, :], axis=0) # first 2 participants' MEG Rdms for training
+    test_rdms = np.mean(target_rdms[:-1, :, :, :], axis=0) # using 3rd participant's RDM for testing, 4th quality is bad
     # Convert train_loader to list so we can shuffle it later
     train_data = list(train_loader)
+
 
     # Initial evaluation
     # torch.save(model.state_dict(), checkpoint_path)
     print("\n--- Initial Evaluation Starting ---")
-    t, m, p, g = evaluate_model(
-        model,
-        test_loader,
-        device,
-        criterion,
-        test_rdms,
-        sample_timepoints,
-        ms_start,
-        ms_end,
-        ms_step,
-        window_size,
-        optimizer,
-    )
+    t, m, p, g = evaluate_model(model, test_loader, device, criterion, test_rdms, sample_timepoints, ms_start, ms_end, ms_step, window_size, optimizer)
     best_pearson_loss = p
-    criterion = PearsonMSELongLoss(
-        initial_mse_loss=m,
-        initial_pearson_loss=p,
-        initial_generalization_loss=g,
-        p_weight=p_weight,
-        m_weight=m_weight,
-        g_weight=g_weight,
-    )
+    criterion = PearsonMSELongLoss(initial_mse_loss=m, initial_pearson_loss=p, initial_generalization_loss=g ,p_weight=p_weight, m_weight=m_weight, g_weight=g_weight)
     print(f"Initial Validation Loss: T={best_test_loss:.4f}, M={m:.4f}, P={p:.4f}, G={g:.4f}")
     print("--- Initial Evaluation Complete ---\n")
 
+
     print("--- Training Starting ---")
     for epoch in range(epochs):
+        
         if fw_tuning_epochs is not None:
+
             if epoch > fw_tuning_epochs - 1:
                 optimizer = optimizer_1
             else:
@@ -824,21 +708,24 @@ def train_model(
 
             if epoch == fw_tuning_epochs:
                 print("\n\n*********************************")
-                print(f"ViT Starts training at epoch {epoch + 1}")
+                print(f"ViT Starts training at epoch {epoch+1}")
                 print("*********************************\n\n")
 
                 # load the latest checkpoint
                 model.load_state_dict(torch.load(checkpoint_path))
-
-        total_loss = 0.0
+        
+        total_loss = 0.0 
         total_iterations = len(train_loader)
 
         # Shuffle train data at the start of each epoch
         random.shuffle(train_data)
 
-        progress_bar = tqdm(total=total_iterations, desc=f"Epoch {epoch + 1}/{epochs}")
+
+        progress_bar = tqdm(total=total_iterations, desc=f"Epoch {epoch+1}/{epochs}")
+
 
         for batch_idx, (image_name, images, indices) in enumerate(train_data):
+
             # Shuffle the images and indices within the batch
             perm = torch.randperm(images.size(0))  # Generate a random permutation
             images = images[perm]
@@ -855,6 +742,7 @@ def train_model(
             target_rdm_3d = train_rdms[:, np.ix_(indices, indices)[0], np.ix_(indices, indices)[1]]
             target_rdm_3d = torch.tensor(target_rdm_3d, dtype=torch.float).to(device)
 
+
             loss, mse_loss, pearson_loss, g_loss = criterion(pred_rdm_3d, target_rdm_3d)
 
             loss.backward()
@@ -862,38 +750,19 @@ def train_model(
 
             total_loss += loss.item()
 
-            progress_bar.set_postfix(
-                {
-                    "Loss": loss.item(),
-                    "M": mse_loss.item(),
-                    "P": pearson_loss.item(),
-                    "G": g_loss.item(),
-                }
-            )
+            progress_bar.set_postfix({'Loss': loss.item(), 'M': mse_loss.item(), 'P': pearson_loss.item(), 'G': g_loss.item()})
             progress_bar.update(1)
         progress_bar.close()
+                
 
+                
         avg_train_loss = total_loss / total_iterations  # Average loss for the epoch
         progress_bar.close()
 
         # Evaluate after every epoch
-        avg_test_loss, avg_mse_loss, avg_pearson_loss, avg_g_loss = evaluate_model(
-            model,
-            test_loader,
-            device,
-            criterion,
-            test_rdms,
-            sample_timepoints,
-            ms_start,
-            ms_end,
-            ms_step,
-            window_size,
-            optimizer,
-        )
-        print(
-            f"Epoch {epoch + 1}: Training Loss: T={avg_train_loss:.4f}, Validation Loss: T={avg_test_loss:.4f}, M={avg_mse_loss:.4f}, P={avg_pearson_loss:.4f}, G={avg_g_loss:.4f}"
-        )
-
+        avg_test_loss, avg_mse_loss, avg_pearson_loss, avg_g_loss = evaluate_model(model, test_loader, device, criterion, test_rdms, sample_timepoints, ms_start, ms_end, ms_step, window_size, optimizer)
+        print(f"Epoch {epoch+1}: Training Loss: T={avg_train_loss:.4f}, Validation Loss: T={avg_test_loss:.4f}, M={avg_mse_loss:.4f}, P={avg_pearson_loss:.4f}, G={avg_g_loss:.4f}")
+        
         # Check for early stopping and saving checkpoint
         if avg_test_loss < best_test_loss and avg_pearson_loss < best_pearson_loss:
             best_test_loss = avg_test_loss
@@ -902,7 +771,7 @@ def train_model(
             # Save the model checkpoint
             torch.save(model.state_dict(), checkpoint_path)
             print("\n\n-----------------------------------")
-            print(f"Checkpoint saved for epoch {epoch + 1}")
+            print(f"Checkpoint saved for epoch {epoch+1}")
             print("-----------------------------------\n\n")
             # break # test break
         else:
@@ -915,9 +784,10 @@ def train_model(
         #     break
 
         if epochs_no_improve == early_stopping_patience:
+            
             if optimizer == optimizer_0:
                 print("\n\n*********************************")
-                print(f"ViT Starts training at epoch {epoch + 1}")
+                print(f"ViT Starts training at epoch {epoch+1}")
                 print("*********************************\n\n")
                 optimizer = optimizer_1
                 epochs_no_improve = 0
@@ -925,26 +795,14 @@ def train_model(
                 fw_tuning_epochs = None
             else:
                 print("\n\n*********************************")
-                print(f"Early stopping triggered at epoch {epoch + 1}")
+                print(f"Early stopping triggered at epoch {epoch+1}")
                 print("*********************************\n\n")
                 break
 
     print("--- Training Complete ---\n")
 
-
-def evaluate_model(
-    model,
-    data_loader,
-    device,
-    criterion,
-    test_rdms,
-    sample_timepoints,
-    ms_start,
-    ms_end,
-    ms_step,
-    window_size,
-    optimizer,
-):
+    
+def evaluate_model(model, data_loader, device, criterion, test_rdms, sample_timepoints, ms_start, ms_end, ms_step, window_size, optimizer):
     model.eval()
     total_loss = 0.0
     total_mse_loss = 0.0
@@ -952,7 +810,7 @@ def evaluate_model(
     total_g_loss = 0.0
     total_iterations = len(data_loader)
     progress_bar = tqdm(total=total_iterations, desc="Evaluating")
-
+    
     with torch.no_grad():
         for batch_idx, (_, images, indices) in enumerate(data_loader):
             images = images.to(device)
@@ -960,6 +818,7 @@ def evaluate_model(
             # optimizer.zero_grad()
 
             pred_emb_3d, pred_rdm_3d, _ = model(images)
+        
 
             target_rdm_3d = test_rdms[:, np.ix_(indices, indices)[0], np.ix_(indices, indices)[1]]
             target_rdm_3d = torch.tensor(target_rdm_3d, dtype=torch.float).to(device)
@@ -971,14 +830,7 @@ def evaluate_model(
             total_pearson_loss += pearson_loss.item()
             total_g_loss += g_loss.item()
 
-            progress_bar.set_postfix(
-                {
-                    "Loss": loss.item(),
-                    "M": mse_loss.item(),
-                    "P": pearson_loss.item(),
-                    "G": g_loss.item(),
-                }
-            )
+            progress_bar.set_postfix({'Loss': loss.item(), 'M': mse_loss.item(), 'P': pearson_loss.item(), 'G': g_loss.item()})
             progress_bar.update(1)
 
     progress_bar.close()
@@ -990,7 +842,7 @@ def evaluate_model(
     return avg_loss, avg_mse_loss, avg_pearson_loss, avg_g_loss
 
 
-def compute_noise_level(alpha, threshold=0.75, scale=0.1):
+def compute_noise_level (alpha, threshold=0.75, scale = 0.1):
 
     noise_level = -1 * alpha + 1
 
@@ -1000,9 +852,7 @@ def compute_noise_level(alpha, threshold=0.75, scale=0.1):
     # noise_level[noise_level <= threshold] = threshold
 
     # min max it to 0-1
-    noise_level = (
-        (noise_level - noise_level.min()) / (noise_level.max() - noise_level.min()) * scale
-    )
+    noise_level = (noise_level - noise_level.min()) / (noise_level.max() - noise_level.min()) * scale
 
     return noise_level
 
@@ -1010,76 +860,73 @@ def compute_noise_level(alpha, threshold=0.75, scale=0.1):
 def run_meg_training_group(config):
     """
     Run MEG training with the given configuration.
-
+    
     Args:
         config (dict): Configuration dictionary containing training parameters
     """
     # Set random seed
-    seed_everything(config["random_seed"])
+    seed_everything(config['random_seed'])
 
     # Initialize classnames
     classnames = classnames66
 
     # Load dataset
-    dataset = DynamicDataset(
-        csv_file=config["csv_file"], img_dir=config["img_dir"], rdm_dir=config["rdm_dir"]
-    )
+    dataset = DynamicDataset(csv_file=config['csv_file'], 
+                            img_dir=config['img_dir'], 
+                            rdm_dir=config['rdm_dir'])
     rdms = dataset.rdms
     print(f"RDMs shape: {rdms.shape}")
 
     # Define curves
-    sample_timepoints = list(
-        range(config["train_start"], config["train_end"] + 1, config["train_step"])
-    )
-    zero_ms_position = (0 - config["ms_start"]) // config["ms_step"] + 1
+    sample_timepoints = list(range(config['train_start'], 
+                                 config['train_end']+1, 
+                                 config['train_step']))
+    zero_ms_position = (0 - config['ms_start']) // config['ms_step'] + 1
     beta = compute_rdm_generalization(rdms, zero_ms_position)
     alpha = get_richness(rdms, zero_ms_position)
-    noise_level = compute_noise_level(beta, scale=config["noise_scale"])
+    noise_level = compute_noise_level(beta, scale=config['noise_scale'])
 
     # Split dataset
-    train_size = int(config["train_portion"] * len(dataset))
+    train_size = int(config['train_portion'] * len(dataset))
     test_size = len(dataset) - train_size
     print(f"\nTrain size: {train_size}, Test size: {test_size}\n")
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
-
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
+    
     # Set position embedding based on backbone
-    pos_embedding = False if config["backbone"] == "RN50" else True
-
+    pos_embedding = False if config['backbone'] == 'RN50' else True
+    
     # Initialize model
-    model = CLIPHBA(
-        classnames=classnames,
-        weighting_matrix=None,
-        backbone_name=config["backbone"],
-        pos_embedding=pos_embedding,
-        ms_start=config["ms_start"],
-        ms_step=config["ms_step"],
-        ms_end=config["ms_end"],
-        train_start=config["train_start"],
-        train_step=config["train_step"],
-        train_end=config["train_end"],
-        train_window_size=config["train_window_size"],
-        beta=beta,
-        noise_level=noise_level,
-        visual_scaler=alpha,
-    )
+    model = CLIPHBA(classnames=classnames, 
+                    weighting_matrix=None,
+                    backbone_name=config['backbone'], 
+                    pos_embedding=pos_embedding,
+                    ms_start=config['ms_start'],
+                    ms_step=config['ms_step'],
+                    ms_end=config['ms_end'],
+                    train_start=config['train_start'],
+                    train_step=config['train_step'],
+                    train_end=config['train_end'],
+                    train_window_size=config['train_window_size'],
+                    beta=beta,
+                    noise_level=noise_level,
+                    visual_scaler=alpha)
 
     # Verify model dimensions
-    assert model.clip_model.weighting_matrix.shape[0] == len(sample_timepoints), (
+    assert model.clip_model.weighting_matrix.shape[0] == len(sample_timepoints), \
         "Weighting matrix shape mismatch"
-    )
 
     # Set device
-    if config["cuda"] == -1:
+    if config['cuda'] == -1:
         device = torch.device("cuda")
         print(f"Using {torch.cuda.device_count()} GPUs")
-    elif config["cuda"] == 0:
+    elif config['cuda'] == 0:
         device = torch.device("cuda:0")
         print("Using GPU 0")
-    elif config["cuda"] == 1:
+    elif config['cuda'] == 1:
         device = torch.device("cuda:1")
         print("Using GPU 1")
     else:
@@ -1087,73 +934,57 @@ def run_meg_training_group(config):
         print("Using CPU")
 
     # Apply DoRA
-    apply_dora_to_ViT(
-        model,
-        n_vision_layers=0,
-        n_transformer_layers=config["transformer_layers"],
-        r=32,
-        dora_dropout=0.1,
-        seed=config["random_seed"],
-    )
-    apply_dora_to_ViT(
-        model,
-        n_vision_layers=config["vision_layers"],
-        n_transformer_layers=0,
-        r=config["rank"],
-        dora_dropout=0.1,
-        seed=config["random_seed"],
-    )
-
-    switch_dora_layers(
-        model, freeze_all=True, d_state=config["dora_d_state"], m_state=config["dora_m_state"]
-    )
+    apply_dora_to_ViT(model, 
+                      n_vision_layers=0, 
+                      n_transformer_layers=config['transformer_layers'],
+                      r=32,
+                      dora_dropout=0.1,
+                      seed=config['random_seed'])
+    apply_dora_to_ViT(model,
+                      n_vision_layers=config['vision_layers'],
+                      n_transformer_layers=0,
+                      r=config['rank'],
+                      dora_dropout=0.1,
+                      seed=config['random_seed'])
+    
+    switch_dora_layers(model, 
+                      freeze_all=True,
+                      d_state=config['dora_d_state'],
+                      m_state=config['dora_m_state'])
     unfreeze_weighting_parameters(model)
 
     # Load pretrained text encoder if specified
-    if config["pretrained_text_encoder"]:
+    if config['pretrained_text_encoder']:
         print(f"Loading pretrained model: {config['text_encoder_path']}")
-        model_state_dict = torch.load(config["text_encoder_path"])
-        adjusted_state_dict = {
-            key.replace("module.", ""): value for key, value in model_state_dict.items()
-        }
+        model_state_dict = torch.load(config['text_encoder_path'])
+        adjusted_state_dict = {key.replace("module.", ""): value 
+                             for key, value in model_state_dict.items()}
         model.load_state_dict(adjusted_state_dict, strict=False)
-
-    if config["freeze_text"]:
+        
+    if config['freeze_text']:
         freeze_text_encoder(model)
         print("Model text encoder frozen\n")
 
-    if config["cuda"] == -1:
+    if config['cuda'] == -1:
         model = DataParallel(model)
     model.to(device)
 
     # Initialize optimizers
-    optimizer_0 = AdamW(
-        [
-            {
-                "params": [
-                    p for n, p in model.named_parameters() if n != "clip_model.weighting_matrix"
-                ],
-                "lr": config["lr_1"],
-            },
-            {"params": [model.clip_model.weighting_matrix], "lr": config["fw_lr_1"]},
-        ]
-    )
+    optimizer_0 = AdamW([
+        {'params': [p for n, p in model.named_parameters() 
+                   if n != 'clip_model.weighting_matrix'], 'lr': config['lr_1']},
+        {'params': [model.clip_model.weighting_matrix], 'lr': config['fw_lr_1']}
+    ])
 
-    optimizer_1 = AdamW(
-        [
-            {
-                "params": [
-                    p for n, p in model.named_parameters() if n != "clip_model.weighting_matrix"
-                ],
-                "lr": config["lr_2"],
-            },
-            {"params": [model.clip_model.weighting_matrix], "lr": config["fw_lr_2"]},
-        ]
-    )
+    optimizer_1 = AdamW([
+        {'params': [p for n, p in model.named_parameters() 
+                   if n != 'clip_model.weighting_matrix'], 'lr': config['lr_2']},
+        {'params': [model.clip_model.weighting_matrix], 'lr': config['fw_lr_2']}
+    ])
 
-    criterion = PearsonMSELongLoss(
-        p_weight=config["p_weight"], m_weight=config["m_weight"], g_weight=config["g_weight"]
-    )
+    criterion = PearsonMSELongLoss(p_weight=config['p_weight'],
+                                  m_weight=config['m_weight'],
+                                  g_weight=config['g_weight'])
 
     # Print training information
     print("Updating layers:")
@@ -1163,25 +994,11 @@ def run_meg_training_group(config):
     print(f"Number of trainable parameters: {count_trainable_parameters(model)}\n")
 
     # Train model
-    train_model(
-        model,
-        train_loader,
-        test_loader,
-        device,
-        criterion,
-        config["p_weight"],
-        config["m_weight"],
-        config["g_weight"],
-        optimizer_0,
-        optimizer_1,
-        config["epochs"],
-        config["fw_tuning_epochs"],
-        rdms,
-        sample_timepoints,
-        config["ms_start"],
-        config["ms_end"],
-        config["ms_step"],
-        config["train_window_size"],
-        config["early_stopping_patience"],
-        config["checkpoint_path"],
-    )
+    train_model(model, train_loader, test_loader, device,
+                criterion, config['p_weight'], config['m_weight'], config['g_weight'],
+                optimizer_0, optimizer_1, config['epochs'],
+                config['fw_tuning_epochs'], rdms, sample_timepoints,
+                config['ms_start'], config['ms_end'], config['ms_step'],
+                config['train_window_size'],
+                config['early_stopping_patience'],
+                config['checkpoint_path'])
