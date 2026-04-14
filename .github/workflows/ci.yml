@@ -49,6 +49,8 @@ jobs:
             tqdm==4.66.2 \
             transformers==4.40.0 \
             peft==0.10.0 \
+            ftfy==6.2.0 \
+            regex==2024.4.16 \
             pytest==8.1.1
 
       - name: Run tests

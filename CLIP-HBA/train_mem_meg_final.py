@@ -47,19 +47,18 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-
 from functions.train_mem_pipeline import (
     EmbeddingDataset,
     MLPOnlyHead,
     evaluate_mem_model,
     run_mem_training,
 )
-
+from torch.utils.data import DataLoader
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def parse_hidden_dims(s: str) -> tuple:
     """Convert a string like '(256, 64)' to the tuple (256, 64)."""
@@ -83,13 +82,13 @@ def load_hyperparams(csv_path: pathlib.Path) -> dict:
 
     hparams: dict = {}
     for _, row in df.iterrows():
-        tp = int(row['timepoint'])
+        tp = int(row["timepoint"])
         hparams[tp] = {
-            'hidden_dims': parse_hidden_dims(row['hidden_dims']),
-            'dropout':     float(row['dropout']),
-            'lr':          float(row['lr']),
-            'weight_decay': float(row['weight_decay']),
-            'batch_size':  int(row['batch_size']),
+            "hidden_dims": parse_hidden_dims(row["hidden_dims"]),
+            "dropout": float(row["dropout"]),
+            "lr": float(row["lr"]),
+            "weight_decay": float(row["weight_decay"]),
+            "batch_size": int(row["batch_size"]),
         }
     return hparams
 
@@ -97,12 +96,12 @@ def load_hyperparams(csv_path: pathlib.Path) -> dict:
 def get_device(cuda: int) -> torch.device:
     """Resolve the torch device from the --cuda argument."""
     if cuda == -1:
-        return torch.device('cuda')
+        return torch.device("cuda")
     if cuda == 0:
-        return torch.device('cuda:0')
+        return torch.device("cuda:0")
     if cuda == 1:
-        return torch.device('cuda:1')
-    return torch.device('cpu')
+        return torch.device("cuda:1")
+    return torch.device("cpu")
 
 
 def build_config(
@@ -118,79 +117,64 @@ def build_config(
     """
     data_dir = args.data_dir
 
-    train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-    val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-    test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
+    train_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv"
+    val_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv"
+    test_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv"
 
     img_root = {
-        'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{data_dir}/lamem/images/'),
-        'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{data_dir}/memcat/images/'),
+        "lamem": os.environ.get("LAMEM_IMG_ROOT", f"{data_dir}/lamem/images/"),
+        "memcat": os.environ.get("MEMCAT_IMG_ROOT", f"{data_dir}/memcat/images/"),
     }
-    memcat_meta_csv = os.environ.get(
-        'MEMCAT_META_CSV', f'{data_dir}/memcat/memcat_image_data.csv'
-    )
+    memcat_meta_csv = os.environ.get("MEMCAT_META_CSV", f"{data_dir}/memcat/memcat_image_data.csv")
 
-    embeddings_dir = (
-        args.embeddings_dir
-        or f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
-    )
+    embeddings_dir = args.embeddings_dir or f"{data_dir}/combined_lamem_memcat/meg_embeddings/"
 
     # model_type encodes the timepoint so _run_mem_training_impl resolves the
     # correct embedding file: {model_type}_fold{fold}_{split}.pt
-    model_type = f'clip_hba_meg_mem_tp{tp}'
+    model_type = f"clip_hba_meg_mem_tp{tp}"
 
     output_dir = args.output_dir
 
     checkpoint_path = (
-        f'{output_dir}/models/clip_hba_meg_mem_final/tp{tp}/'
-        f'clip_hba_meg_mem_tp{tp}_final'
+        f"{output_dir}/models/clip_hba_meg_mem_final/tp{tp}/clip_hba_meg_mem_tp{tp}_final"
     )
-    log_path = f'{output_dir}/logs/meg_mem_final/meg_mem_tp{tp}_fold{fold}.log'
+    log_path = f"{output_dir}/logs/meg_mem_final/meg_mem_tp{tp}_fold{fold}.log"
 
     return {
-        'model_type':    model_type,
-        'input_dim':     66,
-        'training_data': 'combined_lamem_memcat',
-
+        "model_type": model_type,
+        "input_dim": 66,
+        "training_data": "combined_lamem_memcat",
         # Data splits
-        'fold':      fold,
-        'train_csv': train_csv,
-        'val_csv':   val_csv,
-        'test_csv':  test_csv,
-        'img_root':        img_root,
-        'memcat_meta_csv': memcat_meta_csv,
-        'preds_dir': f'{output_dir}/preds/meg_mem_final/',
-
+        "fold": fold,
+        "train_csv": train_csv,
+        "val_csv": val_csv,
+        "test_csv": test_csv,
+        "img_root": img_root,
+        "memcat_meta_csv": memcat_meta_csv,
+        "preds_dir": f"{output_dir}/preds/meg_mem_final/",
         # Precomputed MEG embeddings
-        'embeddings_dir': embeddings_dir,
-
+        "embeddings_dir": embeddings_dir,
         # MLP head architecture (from sweep CSV)
-        'hidden_dims':  hparams['hidden_dims'],
-        'dropout_rate': hparams['dropout'],   # CSV key 'dropout' → config key 'dropout_rate'
-
+        "hidden_dims": hparams["hidden_dims"],
+        "dropout_rate": hparams["dropout"],  # CSV key 'dropout' → config key 'dropout_rate'
         # Optimisation (from sweep CSV)
-        'batch_size':  hparams['batch_size'],
-        'lr':          hparams['lr'],
-        'weight_decay': hparams['weight_decay'],
-
+        "batch_size": hparams["batch_size"],
+        "lr": hparams["lr"],
+        "weight_decay": hparams["weight_decay"],
         # Training schedule
-        'epochs':                   args.epochs,
-        'early_stopping_patience':  args.early_stopping_patience,
-
+        "epochs": args.epochs,
+        "early_stopping_patience": args.early_stopping_patience,
         # train_fraction is intentionally omitted so the pipeline defaults to
         # 1.0 — i.e., 100% of the training split is used.
-
         # Checkpointing
-        'save_checkpoint': True,
-        'checkpoint_path': checkpoint_path,
-
+        "save_checkpoint": True,
+        "checkpoint_path": checkpoint_path,
         # Logging
-        'log_path': log_path,
-
+        "log_path": log_path,
         # Device & reproducibility
-        'cuda':        args.cuda,
-        'random_seed': args.seed,
-        'criterion':   nn.MSELoss(),
+        "cuda": args.cuda,
+        "random_seed": args.seed,
+        "criterion": nn.MSELoss(),
     }
 
 
@@ -218,60 +202,58 @@ def evaluate_on_test_from_checkpoint(
         (test_mse, test_rho) — float pair, or (nan, nan) if no checkpoint found.
     """
     # Locate the checkpoint saved during this fold's training run.
-    checkpoint_path = config['checkpoint_path']
+    checkpoint_path = config["checkpoint_path"]
     ckpt_dir = pathlib.Path(checkpoint_path).parent
     ckpt_stem = pathlib.Path(checkpoint_path).name
-    pattern = str(ckpt_dir / f'{ckpt_stem}_fold{fold}_*.pth')
+    pattern = str(ckpt_dir / f"{ckpt_stem}_fold{fold}_*.pth")
     matches = sorted(_glob.glob(pattern))
 
     if not matches:
         print(
-            f'  [WARNING] No checkpoint found matching {pattern} — '
-            f'skipping test eval for tp={tp} fold={fold}'
+            f"  [WARNING] No checkpoint found matching {pattern} — "
+            f"skipping test eval for tp={tp} fold={fold}"
         )
-        return float('nan'), float('nan')
+        return float("nan"), float("nan")
 
     # Use the lexicographically last match (most recent timestamp if multiple runs).
     ckpt_path = matches[-1]
-    print(f'  [Test eval] Loading checkpoint: {ckpt_path}')
+    print(f"  [Test eval] Loading checkpoint: {ckpt_path}")
 
     # Rebuild model with the same architecture as training.
     model = MLPOnlyHead(
-        hidden_dims=hparams['hidden_dims'],
-        dropout_rate=hparams['dropout'],
+        hidden_dims=hparams["hidden_dims"],
+        dropout_rate=hparams["dropout"],
         input_dim=66,
     )
-    state = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     model.to(device)
 
     # Load the test split embedding file.
-    model_type = config['model_type']
-    emb_dir = pathlib.Path(config['embeddings_dir'])
-    test_pt = emb_dir / f'{model_type}_fold{fold}_test.pt'
+    model_type = config["model_type"]
+    emb_dir = pathlib.Path(config["embeddings_dir"])
+    test_pt = emb_dir / f"{model_type}_fold{fold}_test.pt"
 
     if not test_pt.exists():
         print(
-            f'  [WARNING] Test embedding file not found: {test_pt} — '
-            f'skipping test eval for tp={tp} fold={fold}'
+            f"  [WARNING] Test embedding file not found: {test_pt} — "
+            f"skipping test eval for tp={tp} fold={fold}"
         )
-        return float('nan'), float('nan')
+        return float("nan"), float("nan")
 
     test_dataset = EmbeddingDataset(test_pt)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=config['batch_size'],
+        batch_size=config["batch_size"],
         shuffle=False,
         num_workers=0,
         pin_memory=True,
     )
 
-    test_mse, test_rho, _ = evaluate_mem_model(
-        model, test_loader, device, nn.MSELoss()
-    )
+    test_mse, test_rho, _ = evaluate_mem_model(model, test_loader, device, nn.MSELoss())
     print(
-        f'  [Test eval] tp={tp:+d} ms  fold={fold}  '
-        f'test_mse={test_mse:.4f}  test_rho={test_rho:.4f}'
+        f"  [Test eval] tp={tp:+d} ms  fold={fold}  "
+        f"test_mse={test_mse:.4f}  test_rho={test_rho:.4f}"
     )
     return float(test_mse), float(test_rho)
 
@@ -280,83 +262,82 @@ def evaluate_on_test_from_checkpoint(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            'Train final MLP memorability heads for every MEG timepoint '
-            'across all 10 combined_lamem_memcat folds.'
+            "Train final MLP memorability heads for every MEG timepoint "
+            "across all 10 combined_lamem_memcat folds."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--csv',
-        default='meg_hyperparam_search_results.csv',
-        help='Path to the hyperparameter search results CSV.',
+        "--csv",
+        default="meg_hyperparam_search_results.csv",
+        help="Path to the hyperparameter search results CSV.",
     )
     parser.add_argument(
-        '--timepoints',
-        nargs='+',
+        "--timepoints",
+        nargs="+",
         type=int,
         default=None,
-        metavar='MS',
-        help='Restrict training to these timepoints (ms). '
-             'Defaults to all timepoints in the CSV.',
+        metavar="MS",
+        help="Restrict training to these timepoints (ms). Defaults to all timepoints in the CSV.",
     )
     parser.add_argument(
-        '--folds',
-        nargs='+',
+        "--folds",
+        nargs="+",
         type=int,
         default=list(range(1, 11)),
-        metavar='FOLD',
-        help='Folds to train (1–10). Defaults to all 10 folds.',
+        metavar="FOLD",
+        help="Folds to train (1–10). Defaults to all 10 folds.",
     )
     parser.add_argument(
-        '--epochs',
+        "--epochs",
         type=int,
         default=300,
-        help='Maximum number of training epochs per (timepoint, fold).',
+        help="Maximum number of training epochs per (timepoint, fold).",
     )
     parser.add_argument(
-        '--early_stopping_patience',
+        "--early_stopping_patience",
         type=int,
         default=20,
-        help='Early stopping patience (epochs without val improvement).',
+        help="Early stopping patience (epochs without val improvement).",
     )
     parser.add_argument(
-        '--cuda',
+        "--cuda",
         type=int,
-        default=int(os.environ.get('CUDA_DEVICE', 0)),
-        help='GPU index (0, 1, …).  Use -1 for DataParallel, 2 for CPU.',
+        default=int(os.environ.get("CUDA_DEVICE", 0)),
+        help="GPU index (0, 1, …).  Use -1 for DataParallel, 2 for CPU.",
     )
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
-        default=int(os.environ.get('RANDOM_SEED', 1)),
-        help='Random seed (applied once per (timepoint, fold) run).',
+        default=int(os.environ.get("RANDOM_SEED", 1)),
+        help="Random seed (applied once per (timepoint, fold) run).",
     )
     parser.add_argument(
-        '--data_dir',
-        default=os.environ.get('DATA_DIR', './Data'),
-        help='Root data directory. Also settable via DATA_DIR env var.',
+        "--data_dir",
+        default=os.environ.get("DATA_DIR", "./Data"),
+        help="Root data directory. Also settable via DATA_DIR env var.",
     )
     parser.add_argument(
-        '--embeddings_dir',
+        "--embeddings_dir",
         default=None,
         help=(
-            'Directory containing precomputed MEG .pt embedding files. '
-            'Defaults to <data_dir>/combined_lamem_memcat/meg_embeddings/.'
+            "Directory containing precomputed MEG .pt embedding files. "
+            "Defaults to <data_dir>/combined_lamem_memcat/meg_embeddings/."
         ),
     )
     parser.add_argument(
-        '--output_dir',
-        default='.',
-        help='Base directory for all outputs (models, preds, logs, results).',
+        "--output_dir",
+        default=".",
+        help="Base directory for all outputs (models, preds, logs, results).",
     )
     parser.add_argument(
-        '--summary_dir',
+        "--summary_dir",
         default=None,
-        help='Directory to write the per-timepoint summary CSV. '
-             'Defaults to <output_dir>/results.',
+        help="Directory to write the per-timepoint summary CSV. Defaults to <output_dir>/results.",
     )
     args = parser.parse_args()
 
@@ -366,8 +347,8 @@ def main() -> None:
     csv_path = pathlib.Path(args.csv)
     if not csv_path.exists():
         raise FileNotFoundError(
-            f'Hyperparameter CSV not found: {csv_path.resolve()}\n'
-            'Run train_mem_meg_hyperparam_search.py first to generate it.'
+            f"Hyperparameter CSV not found: {csv_path.resolve()}\n"
+            "Run train_mem_meg_hyperparam_search.py first to generate it."
         )
 
     all_hparams = load_hyperparams(csv_path)
@@ -377,28 +358,26 @@ def main() -> None:
     if args.timepoints is not None:
         unknown = set(args.timepoints) - set(timepoints)
         if unknown:
-            raise ValueError(
-                f'Requested timepoints not found in CSV: {sorted(unknown)}'
-            )
+            raise ValueError(f"Requested timepoints not found in CSV: {sorted(unknown)}")
         timepoints = [tp for tp in timepoints if tp in args.timepoints]
 
     folds = args.folds
     device = get_device(args.cuda)
 
     total_runs = len(timepoints) * len(folds)
-    print(f'\n{"="*60}')
-    print(f'CLIP-HBA-MEG Final MLP Training')
-    print(f'{"="*60}')
-    print(f'  Timepoints : {timepoints}')
-    print(f'  Folds      : {folds}')
-    print(f'  Total runs : {total_runs}  ({len(timepoints)} tp × {len(folds)} folds)')
-    print(f'  Epochs     : {args.epochs}  (patience={args.early_stopping_patience})')
-    print(f'  CSV        : {csv_path}')
-    print(f'  Data dir   : {args.data_dir}')
-    print(f'  Output dir : {args.output_dir}')
-    print(f'  CUDA       : {args.cuda}  (device: {device})')
-    print(f'  Seed       : {args.seed}')
-    print(f'{"="*60}\n')
+    print(f"\n{'=' * 60}")
+    print("CLIP-HBA-MEG Final MLP Training")
+    print(f"{'=' * 60}")
+    print(f"  Timepoints : {timepoints}")
+    print(f"  Folds      : {folds}")
+    print(f"  Total runs : {total_runs}  ({len(timepoints)} tp × {len(folds)} folds)")
+    print(f"  Epochs     : {args.epochs}  (patience={args.early_stopping_patience})")
+    print(f"  CSV        : {csv_path}")
+    print(f"  Data dir   : {args.data_dir}")
+    print(f"  Output dir : {args.output_dir}")
+    print(f"  CUDA       : {args.cuda}  (device: {device})")
+    print(f"  Seed       : {args.seed}")
+    print(f"{'=' * 60}\n")
 
     # ------------------------------------------------------------------
     # Training loop: outer = timepoints, inner = folds
@@ -409,20 +388,20 @@ def main() -> None:
 
     for tp in timepoints:
         hparams = all_hparams[tp]
-        print(f'\n{"─"*60}')
-        print(f'Timepoint: {tp:+d} ms')
+        print(f"\n{'─' * 60}")
+        print(f"Timepoint: {tp:+d} ms")
         print(
-            f'  hidden_dims={hparams["hidden_dims"]}  '
-            f'dropout={hparams["dropout"]:.4f}  '
-            f'lr={hparams["lr"]:.2e}  '
-            f'weight_decay={hparams["weight_decay"]:.4f}  '
-            f'batch_size={hparams["batch_size"]}'
+            f"  hidden_dims={hparams['hidden_dims']}  "
+            f"dropout={hparams['dropout']:.4f}  "
+            f"lr={hparams['lr']:.2e}  "
+            f"weight_decay={hparams['weight_decay']:.4f}  "
+            f"batch_size={hparams['batch_size']}"
         )
-        print(f'{"─"*60}')
+        print(f"{'─' * 60}")
 
         for fold in folds:
             run_idx += 1
-            print(f'\n[Run {run_idx}/{total_runs}]  tp={tp:+d} ms  fold={fold}')
+            print(f"\n[Run {run_idx}/{total_runs}]  tp={tp:+d} ms  fold={fold}")
 
             config = build_config(tp, fold, hparams, args)
 
@@ -433,30 +412,30 @@ def main() -> None:
             best_val_loss, best_val_rho = run_mem_training(config)
 
             # Evaluate on test set using the best checkpoint.
-            test_mse, test_rho = evaluate_on_test_from_checkpoint(
-                tp, fold, hparams, config, device
-            )
+            test_mse, test_rho = evaluate_on_test_from_checkpoint(tp, fold, hparams, config, device)
 
-            fold_results[tp].append({
-                'fold':         fold,
-                'val_loss':     best_val_loss,
-                'val_rho':      best_val_rho,
-                'test_mse':     test_mse,
-                'test_rho':     test_rho,
-            })
+            fold_results[tp].append(
+                {
+                    "fold": fold,
+                    "val_loss": best_val_loss,
+                    "val_rho": best_val_rho,
+                    "test_mse": test_mse,
+                    "test_rho": test_rho,
+                }
+            )
             print(
-                f'  → tp={tp:+d} ms  fold={fold}  '
-                f'best_val_loss={best_val_loss:.4f}  best_val_rho={best_val_rho:.4f}  '
-                f'test_mse={test_mse:.4f}  test_rho={test_rho:.4f}'
+                f"  → tp={tp:+d} ms  fold={fold}  "
+                f"best_val_loss={best_val_loss:.4f}  best_val_rho={best_val_rho:.4f}  "
+                f"test_mse={test_mse:.4f}  test_rho={test_rho:.4f}"
             )
 
     # ------------------------------------------------------------------
     # Aggregate and write summary
     # ------------------------------------------------------------------
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    summary_dir = pathlib.Path(args.summary_dir or f'{args.output_dir}/results')
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    summary_dir = pathlib.Path(args.summary_dir or f"{args.output_dir}/results")
     summary_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = summary_dir / f'meg_mem_final_summary_{timestamp}.csv'
+    summary_path = summary_dir / f"meg_mem_final_summary_{timestamp}.csv"
 
     summary_rows = []
     for tp in timepoints:
@@ -464,60 +443,62 @@ def main() -> None:
         if not rows:
             continue
 
-        val_losses  = [r['val_loss']  for r in rows if not np.isnan(r['val_loss'])]
-        val_rhos    = [r['val_rho']   for r in rows if not np.isnan(r['val_rho'])]
-        test_mses   = [r['test_mse']  for r in rows if not np.isnan(r['test_mse'])]
-        test_rhos   = [r['test_rho']  for r in rows if not np.isnan(r['test_rho'])]
+        val_losses = [r["val_loss"] for r in rows if not np.isnan(r["val_loss"])]
+        val_rhos = [r["val_rho"] for r in rows if not np.isnan(r["val_rho"])]
+        test_mses = [r["test_mse"] for r in rows if not np.isnan(r["test_mse"])]
+        test_rhos = [r["test_rho"] for r in rows if not np.isnan(r["test_rho"])]
 
-        summary_rows.append({
-            'timepoint':       tp,
-            'n_folds':         len(rows),
-            'mean_val_mse':    float(np.mean(val_losses))  if val_losses  else float('nan'),
-            'std_val_mse':     float(np.std(val_losses))   if val_losses  else float('nan'),
-            'mean_val_rho':    float(np.mean(val_rhos))    if val_rhos    else float('nan'),
-            'std_val_rho':     float(np.std(val_rhos))     if val_rhos    else float('nan'),
-            'mean_test_mse':   float(np.mean(test_mses))   if test_mses   else float('nan'),
-            'std_test_mse':    float(np.std(test_mses))    if test_mses   else float('nan'),
-            'mean_test_rho':   float(np.mean(test_rhos))   if test_rhos   else float('nan'),
-            'std_test_rho':    float(np.std(test_rhos))    if test_rhos   else float('nan'),
-            # Per-fold detail columns (fold1_test_rho, fold2_test_rho, …)
-            **{f'fold{r["fold"]}_val_mse':  r['val_loss']  for r in rows},
-            **{f'fold{r["fold"]}_val_rho':  r['val_rho']   for r in rows},
-            **{f'fold{r["fold"]}_test_mse': r['test_mse']  for r in rows},
-            **{f'fold{r["fold"]}_test_rho': r['test_rho']  for r in rows},
-        })
+        summary_rows.append(
+            {
+                "timepoint": tp,
+                "n_folds": len(rows),
+                "mean_val_mse": float(np.mean(val_losses)) if val_losses else float("nan"),
+                "std_val_mse": float(np.std(val_losses)) if val_losses else float("nan"),
+                "mean_val_rho": float(np.mean(val_rhos)) if val_rhos else float("nan"),
+                "std_val_rho": float(np.std(val_rhos)) if val_rhos else float("nan"),
+                "mean_test_mse": float(np.mean(test_mses)) if test_mses else float("nan"),
+                "std_test_mse": float(np.std(test_mses)) if test_mses else float("nan"),
+                "mean_test_rho": float(np.mean(test_rhos)) if test_rhos else float("nan"),
+                "std_test_rho": float(np.std(test_rhos)) if test_rhos else float("nan"),
+                # Per-fold detail columns (fold1_test_rho, fold2_test_rho, …)
+                **{f"fold{r['fold']}_val_mse": r["val_loss"] for r in rows},
+                **{f"fold{r['fold']}_val_rho": r["val_rho"] for r in rows},
+                **{f"fold{r['fold']}_test_mse": r["test_mse"] for r in rows},
+                **{f"fold{r['fold']}_test_rho": r["test_rho"] for r in rows},
+            }
+        )
 
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(summary_path, index=False)
-    print(f'\nSummary written to: {summary_path}')
+    print(f"\nSummary written to: {summary_path}")
 
     # ------------------------------------------------------------------
     # Console summary table
     # ------------------------------------------------------------------
-    print(f'\n{"="*80}')
-    print('Training complete — per-timepoint summary (mean ± std across folds)')
-    print(f'{"="*80}')
+    print(f"\n{'=' * 80}")
+    print("Training complete — per-timepoint summary (mean ± std across folds)")
+    print(f"{'=' * 80}")
     print(
-        f'{"Timepoint":>10}  {"Folds":>5}  '
-        f'{"Val MSE":>18}  {"Val ρ":>18}  '
-        f'{"Test MSE":>18}  {"Test ρ":>18}'
+        f"{'Timepoint':>10}  {'Folds':>5}  "
+        f"{'Val MSE':>18}  {'Val ρ':>18}  "
+        f"{'Test MSE':>18}  {'Test ρ':>18}"
     )
     print(
-        f'{"":>10}  {"":>5}  '
-        f'{"mean ± std":>18}  {"mean ± std":>18}  '
-        f'{"mean ± std":>18}  {"mean ± std":>18}'
+        f"{'':>10}  {'':>5}  "
+        f"{'mean ± std':>18}  {'mean ± std':>18}  "
+        f"{'mean ± std':>18}  {'mean ± std':>18}"
     )
-    print(f'{"-"*10}  {"-"*5}  {"-"*18}  {"-"*18}  {"-"*18}  {"-"*18}')
+    print(f"{'-' * 10}  {'-' * 5}  {'-' * 18}  {'-' * 18}  {'-' * 18}  {'-' * 18}")
     for r in summary_rows:
         print(
-            f'{r["timepoint"]:>+10d}  {r["n_folds"]:>5d}  '
-            f'{r["mean_val_mse"]:>8.4f} ± {r["std_val_mse"]:<7.4f}  '
-            f'{r["mean_val_rho"]:>8.4f} ± {r["std_val_rho"]:<7.4f}  '
-            f'{r["mean_test_mse"]:>8.4f} ± {r["std_test_mse"]:<7.4f}  '
-            f'{r["mean_test_rho"]:>8.4f} ± {r["std_test_rho"]:<7.4f}'
+            f"{r['timepoint']:>+10d}  {r['n_folds']:>5d}  "
+            f"{r['mean_val_mse']:>8.4f} ± {r['std_val_mse']:<7.4f}  "
+            f"{r['mean_val_rho']:>8.4f} ± {r['std_val_rho']:<7.4f}  "
+            f"{r['mean_test_mse']:>8.4f} ± {r['std_test_mse']:<7.4f}  "
+            f"{r['mean_test_rho']:>8.4f} ± {r['std_test_rho']:<7.4f}"
         )
-    print(f'{"="*80}\n')
+    print(f"{'=' * 80}\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

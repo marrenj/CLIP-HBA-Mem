@@ -1,33 +1,30 @@
 import csv
+import datetime
 import logging
-import torch
-import torch.nn as nn
-from torch.nn import DataParallel
-from torch.utils.data import DataLoader, Dataset, Subset
-from torchvision import transforms
-import pandas as pd
-from PIL import Image
 import os
 import pathlib
-import sys
+import warnings
+
 import numpy as np
-import datetime
-from torch.nn import functional as F
-from tqdm import tqdm
-from scipy.stats import spearmanr
-
-from transformers import CLIPModel
-from peft import LoraConfig, get_peft_model
-
+import pandas as pd
+import torch
+import torch.nn as nn
+from functions.spose_dimensions import classnames66
 from functions.train_behavior_things_pipeline import (
     CLIPHBA,
     apply_dora_to_ViT,
-    seed_everything,
     count_trainable_parameters,
+    seed_everything,
 )
-from functions.spose_dimensions import classnames66
+from peft import LoraConfig, get_peft_model
+from PIL import Image
+from scipy.stats import spearmanr
+from torch.nn import DataParallel
+from torch.utils.data import DataLoader, Dataset, Subset
+from torchvision import transforms
+from tqdm import tqdm
+from transformers import CLIPModel
 
-import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 logger = logging.getLogger(__name__)
@@ -63,32 +60,38 @@ class MemDataset(Dataset):
     def __init__(
         self,
         csv_file: str,
-        img_root: 'str | dict' = '',
-        memcat_meta_csv: 'str | None' = None,
+        img_root: "str | dict" = "",
+        memcat_meta_csv: "str | None" = None,
     ) -> None:
         self.img_root = img_root
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
-                                 std=[0.27608301, 0.26593025, 0.28238822]),
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.52997664, 0.48070561, 0.41943838],
+                    std=[0.27608301, 0.26593025, 0.28238822],
+                ),
+            ]
+        )
         df = pd.read_csv(csv_file)
         # Normalise column names so combined-split CSVs (file / mem) and
         # standard CSVs (image_path / score) both work without branching.
-        df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
+        df = df.rename(columns={"file": "image_path", "mem": "score"})
         self.annotations = df
 
         # Build filename -> "category/subcategory" lookup for MemCat images.
-        self._memcat_subpath: 'dict[str, str]' = {}
+        self._memcat_subpath: "dict[str, str]" = {}
         if memcat_meta_csv:
             meta = pd.read_csv(memcat_meta_csv)
-            for col in ('file', 'filename', 'image_file'):
+            for col in ("file", "filename", "image_file"):
                 if col in meta.columns:
-                    self._memcat_subpath = dict(zip(
-                        meta[col],
-                        meta['category'].astype(str) + os.sep + meta['subcategory'].astype(str),
-                    ))
+                    self._memcat_subpath = dict(
+                        zip(
+                            meta[col],
+                            meta["category"].astype(str) + os.sep + meta["subcategory"].astype(str),
+                        )
+                    )
                     break
             if not self._memcat_subpath:
                 raise ValueError(
@@ -103,20 +106,23 @@ class MemDataset(Dataset):
     def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
         if isinstance(self.img_root, dict):
-            root = self.img_root[row['set']]
-            fname = row['image_path']
-            if row['set'] == 'memcat' and self._memcat_subpath:
-                subpath = self._memcat_subpath.get(fname, '')
+            root = self.img_root[row["set"]]
+            fname = row["image_path"]
+            if row["set"] == "memcat" and self._memcat_subpath:
+                subpath = self._memcat_subpath.get(fname, "")
                 img_path = os.path.join(root, subpath, fname)
             else:
                 img_path = os.path.join(root, fname)
         else:
-            img_path = (os.path.join(self.img_root, row['image_path'])
-                        if self.img_root else row['image_path'])
-        image = Image.open(img_path).convert('RGB')
+            img_path = (
+                os.path.join(self.img_root, row["image_path"])
+                if self.img_root
+                else row["image_path"]
+            )
+        image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
-        score = torch.tensor(float(row['score']), dtype=torch.float32)
-        return row['image_path'], image, score
+        score = torch.tensor(float(row["score"]), dtype=torch.float32)
+        return row["image_path"], image, score
 
 
 class PerceptCLIPDataset(Dataset):
@@ -133,31 +139,37 @@ class PerceptCLIPDataset(Dataset):
     def __init__(
         self,
         csv_file: str,
-        img_root: 'str | dict' = '',
-        memcat_meta_csv: 'str | None' = None,
+        img_root: "str | dict" = "",
+        memcat_meta_csv: "str | None" = None,
     ) -> None:
         self.img_root = img_root
-        self.transform = transforms.Compose([
-            transforms.Resize(224),
-            transforms.CenterCrop(size=(224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073),
-                                 std=(0.26862954, 0.26130258, 0.27577711)),
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize(224),
+                transforms.CenterCrop(size=(224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=(0.48145466, 0.4578275, 0.40821073),
+                    std=(0.26862954, 0.26130258, 0.27577711),
+                ),
+            ]
+        )
         df = pd.read_csv(csv_file)
-        df = df.rename(columns={'file': 'image_path', 'mem': 'score'})
+        df = df.rename(columns={"file": "image_path", "mem": "score"})
         self.annotations = df
 
         # Build filename -> "category/subcategory" lookup for MemCat images.
-        self._memcat_subpath: 'dict[str, str]' = {}
+        self._memcat_subpath: "dict[str, str]" = {}
         if memcat_meta_csv:
             meta = pd.read_csv(memcat_meta_csv)
-            for col in ('file', 'filename', 'image_file'):
+            for col in ("file", "filename", "image_file"):
                 if col in meta.columns:
-                    self._memcat_subpath = dict(zip(
-                        meta[col],
-                        meta['category'].astype(str) + os.sep + meta['subcategory'].astype(str),
-                    ))
+                    self._memcat_subpath = dict(
+                        zip(
+                            meta[col],
+                            meta["category"].astype(str) + os.sep + meta["subcategory"].astype(str),
+                        )
+                    )
                     break
             if not self._memcat_subpath:
                 raise ValueError(
@@ -172,20 +184,23 @@ class PerceptCLIPDataset(Dataset):
     def __getitem__(self, index: int):
         row = self.annotations.iloc[index]
         if isinstance(self.img_root, dict):
-            root = self.img_root[row['set']]
-            fname = row['image_path']
-            if row['set'] == 'memcat' and self._memcat_subpath:
-                subpath = self._memcat_subpath.get(fname, '')
+            root = self.img_root[row["set"]]
+            fname = row["image_path"]
+            if row["set"] == "memcat" and self._memcat_subpath:
+                subpath = self._memcat_subpath.get(fname, "")
                 img_path = os.path.join(root, subpath, fname)
             else:
                 img_path = os.path.join(root, fname)
         else:
-            img_path = (os.path.join(self.img_root, row['image_path'])
-                        if self.img_root else row['image_path'])
-        image = Image.open(img_path).convert('RGB')
+            img_path = (
+                os.path.join(self.img_root, row["image_path"])
+                if self.img_root
+                else row["image_path"]
+            )
+        image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
-        score = torch.tensor(float(row['score']), dtype=torch.float32)
-        return row['image_path'], image, score
+        score = torch.tensor(float(row["score"]), dtype=torch.float32)
+        return row["image_path"], image, score
 
 
 class EmbeddingDataset(Dataset):
@@ -201,10 +216,10 @@ class EmbeddingDataset(Dataset):
     """
 
     def __init__(self, pt_path: str) -> None:
-        payload = torch.load(pt_path, map_location='cpu', weights_only=True)
-        self.embeddings:  torch.Tensor = payload['embeddings']   # [N, 768]
-        self.scores:      torch.Tensor = payload['scores']        # [N]
-        self.image_paths: list         = payload['image_paths']   # list[N]
+        payload = torch.load(pt_path, map_location="cpu", weights_only=True)
+        self.embeddings: torch.Tensor = payload["embeddings"]  # [N, 768]
+        self.scores: torch.Tensor = payload["scores"]  # [N]
+        self.image_paths: list = payload["image_paths"]  # list[N]
 
     def __len__(self) -> int:
         return len(self.scores)
@@ -212,14 +227,15 @@ class EmbeddingDataset(Dataset):
     def __getitem__(self, index: int):
         return (
             self.image_paths[index],
-            self.embeddings[index],   # [768]
-            self.scores[index],       # scalar
+            self.embeddings[index],  # [768]
+            self.scores[index],  # scalar
         )
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim=768, hidden_dim1=512, hidden_dim2=256,
-                 output_dim=1, dropout_rate=0.5):
+    def __init__(
+        self, input_dim=768, hidden_dim1=512, hidden_dim2=256, output_dim=1, dropout_rate=0.5
+    ):
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim1)
         self.relu1 = nn.ReLU()
@@ -240,13 +256,21 @@ class MLP(nn.Module):
 
 
 class clip_lora_model(nn.Module):
-    def __init__(self, input_dim=768, hidden_dim1=512, hidden_dim2=256,
-                 output_dim=1, dropout_rate=0.5, r=16, lora_alpha=8):
+    def __init__(
+        self,
+        input_dim=768,
+        hidden_dim1=512,
+        hidden_dim2=256,
+        output_dim=1,
+        dropout_rate=0.5,
+        r=16,
+        lora_alpha=8,
+    ):
         super(clip_lora_model, self).__init__()
         self.output_dim = output_dim
         self.mlp = MLP(input_dim, hidden_dim1, hidden_dim2, output_dim, dropout_rate)
 
-        model_name = 'openai/clip-vit-large-patch14'
+        model_name = "openai/clip-vit-large-patch14"
         model = CLIPModel.from_pretrained(model_name)
         self.proj = model.visual_projection
         for param in self.proj.parameters():
@@ -278,15 +302,17 @@ class CLIPFrozenMLP(nn.Module):
     MLP head on top of the 768-dim projected embeddings.
     """
 
-    _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
+    _ACTIVATIONS = {"relu": nn.ReLU, "gelu": nn.GELU}
 
-    def __init__(self, hidden_dims=(512, 256), dropout_rate=0.5, activation: str = 'relu'):
+    def __init__(self, hidden_dims=(512, 256), dropout_rate=0.5, activation: str = "relu"):
         super().__init__()
         if activation not in self._ACTIVATIONS:
-            raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')
+            raise ValueError(
+                f"activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}"
+            )
         act_cls = self._ACTIVATIONS[activation]
 
-        model_name = 'openai/clip-vit-large-patch14'
+        model_name = "openai/clip-vit-large-patch14"
         clip_model = CLIPModel.from_pretrained(model_name)
         self.vision_model = clip_model.vision_model
         self.visual_projection = clip_model.visual_projection
@@ -295,9 +321,10 @@ class CLIPFrozenMLP(nn.Module):
             p.requires_grad = False
         for p in self.visual_projection.parameters():
             p.requires_grad = False
-        n_frozen = (sum(1 for p in self.vision_model.parameters())
-                    + sum(1 for p in self.visual_projection.parameters()))
-        logger.info('[Backbone] Loaded %s — %d tensors frozen', model_name, n_frozen)
+        n_frozen = sum(1 for p in self.vision_model.parameters()) + sum(
+            1 for p in self.visual_projection.parameters()
+        )
+        logger.info("[Backbone] Loaded %s — %d tensors frozen", model_name, n_frozen)
 
         # --- MLP head ---
         layers = []
@@ -307,7 +334,9 @@ class CLIPFrozenMLP(nn.Module):
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
-        logger.info('[MLP] hidden_dims=%s  activation=%s  dropout=%s', hidden_dims, activation, dropout_rate)
+        logger.info(
+            "[MLP] hidden_dims=%s  activation=%s  dropout=%s", hidden_dims, activation, dropout_rate
+        )
 
     def train(self, mode=True):
         super().train(mode)
@@ -333,13 +362,20 @@ class MLPOnlyHead(nn.Module):
     only the MLP layers, making each training step orders of magnitude faster.
     """
 
-    _ACTIVATIONS = {'relu': nn.ReLU, 'gelu': nn.GELU}
+    _ACTIVATIONS = {"relu": nn.ReLU, "gelu": nn.GELU}
 
-    def __init__(self, hidden_dims: tuple = (256, 128), dropout_rate: float = 0.5,
-                 input_dim: int = 768, activation: str = 'relu') -> None:
+    def __init__(
+        self,
+        hidden_dims: tuple = (256, 128),
+        dropout_rate: float = 0.5,
+        input_dim: int = 768,
+        activation: str = "relu",
+    ) -> None:
         super().__init__()
         if activation not in self._ACTIVATIONS:
-            raise ValueError(f'activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}')
+            raise ValueError(
+                f"activation must be one of {list(self._ACTIVATIONS)}; got {activation!r}"
+            )
         act_cls = self._ACTIVATIONS[activation]
         layers = []
         in_dim = input_dim
@@ -371,35 +407,44 @@ class CLIPHBAMem(nn.Module):
     per image (shape [B, 1] from forward).
     """
 
-    def __init__(self, backbone_checkpoint, backbone_name='ViT-L/14',
-                 vision_layers=2, transformer_layers=1, rank=32,
-                 hidden_dims=(512, 256), dropout_rate=0.5):
+    def __init__(
+        self,
+        backbone_checkpoint,
+        backbone_name="ViT-L/14",
+        vision_layers=2,
+        transformer_layers=1,
+        rank=32,
+        hidden_dims=(512, 256),
+        dropout_rate=0.5,
+    ):
         super().__init__()
 
         # --- Frozen CLIP-HBA backbone ---
-        pos_embedding = (backbone_name != 'RN50')
-        self.backbone = CLIPHBA(classnames=classnames66,
-                                backbone_name=backbone_name,
-                                pos_embedding=pos_embedding)
-        apply_dora_to_ViT(self.backbone,
-                          n_vision_layers=vision_layers,
-                          n_transformer_layers=transformer_layers,
-                          r=rank)
+        pos_embedding = backbone_name != "RN50"
+        self.backbone = CLIPHBA(
+            classnames=classnames66, backbone_name=backbone_name, pos_embedding=pos_embedding
+        )
+        apply_dora_to_ViT(
+            self.backbone,
+            n_vision_layers=vision_layers,
+            n_transformer_layers=transformer_layers,
+            r=rank,
+        )
 
         # weights_only=False is required here: DoRA checkpoints store non-tensor
         # metadata (e.g. magnitude vectors wrapped in custom classes) that cannot
         # be safely unpickled with weights_only=True.  Only load checkpoints from
         # trusted sources (i.e. those produced by this codebase).
-        state_dict = torch.load(backbone_checkpoint, map_location='cpu', weights_only=False)
+        state_dict = torch.load(backbone_checkpoint, map_location="cpu", weights_only=False)
         # Strip DataParallel 'module.' prefix if present
-        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
         self.backbone.load_state_dict(state_dict, strict=False)
-        logger.info('[Backbone] Loaded %d keys from %s', len(state_dict), backbone_checkpoint)
+        logger.info("[Backbone] Loaded %d keys from %s", len(state_dict), backbone_checkpoint)
 
         for p in self.backbone.parameters():
             p.requires_grad = False
         n_frozen = sum(1 for p in self.backbone.parameters() if not p.requires_grad)
-        logger.info('[Backbone] %d tensors frozen', n_frozen)
+        logger.info("[Backbone] %d tensors frozen", n_frozen)
 
         # --- MLP head (dynamically constructed) ---
         layers = []
@@ -409,7 +454,7 @@ class CLIPHBAMem(nn.Module):
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
         self.mlp_head = nn.Sequential(*layers)
-        logger.info('[MLP] hidden_dims=%s  dropout=%s', hidden_dims, dropout_rate)
+        logger.info("[MLP] hidden_dims=%s  dropout=%s", hidden_dims, dropout_rate)
 
     def train(self, mode=True):
         super().train(mode)
@@ -432,8 +477,8 @@ def evaluate_mem_model(
     data_loader: DataLoader,
     device: torch.device,
     criterion: nn.Module,
-    save_csv_path: 'str | None' = None,
-) -> 'tuple[float, float, float]':
+    save_csv_path: "str | None" = None,
+) -> "tuple[float, float, float]":
     """Evaluate model on data_loader and return (avg_mse, spearman_rho, pred_std)."""
     model.eval()
     total_loss = 0.0
@@ -441,30 +486,32 @@ def evaluate_mem_model(
     all_targets = []
     all_image_paths = []
 
-    with torch.no_grad(), tqdm(data_loader, desc='Evaluating', leave=False) as pbar:
+    with torch.no_grad(), tqdm(data_loader, desc="Evaluating", leave=False) as pbar:
         for image_paths, images, targets in pbar:
-            images  = images.to(device)
+            images = images.to(device)
             targets = targets.to(device)
 
             preds = model(images).squeeze(1)  # [B]
-            loss  = criterion(preds, targets)
+            loss = criterion(preds, targets)
             total_loss += loss.item() * images.size(0)
 
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
             all_image_paths.extend(image_paths)
-            pbar.set_postfix({'loss': loss.item()})
+            pbar.set_postfix({"loss": loss.item()})
 
     avg_loss = total_loss / len(data_loader.dataset)
     rho, _ = spearmanr(all_preds, all_targets)
     pred_std = float(np.std(all_preds))
 
     if save_csv_path is not None:
-        pd.DataFrame({
-            'image_path': all_image_paths,
-            'pred_score': all_preds,
-            'true_score': all_targets,
-        }).to_csv(save_csv_path, index=False)
+        pd.DataFrame(
+            {
+                "image_path": all_image_paths,
+                "pred_score": all_preds,
+                "true_score": all_targets,
+            }
+        ).to_csv(save_csv_path, index=False)
 
     return avg_loss, rho, pred_std
 
@@ -478,15 +525,15 @@ def train_mem_model(
     criterion: nn.Module,
     epochs: int,
     early_stopping_patience: int = 10,
-    checkpoint_path: 'str | None' = 'clip_hba_mem.pth',
-    test_loader: 'DataLoader | None' = None,
+    checkpoint_path: "str | None" = "clip_hba_mem.pth",
+    test_loader: "DataLoader | None" = None,
     fold: int = 1,
-    preds_dir: 'str | None' = None,
-    run_timestamp: 'str | None' = None,
+    preds_dir: "str | None" = None,
+    run_timestamp: "str | None" = None,
     save_checkpoint: bool = True,
-) -> 'tuple[float, float]':
+) -> "tuple[float, float]":
     """Train model and return (best_val_loss, best_spearman_rho) at the best checkpoint."""
-    run_timestamp = run_timestamp or datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_timestamp = run_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if checkpoint_path is not None:
         checkpoint_path = str(pathlib.Path(checkpoint_path))
     if preds_dir is not None:
@@ -494,15 +541,15 @@ def train_mem_model(
         os.makedirs(preds_dir, exist_ok=True)
 
     model.train()
-    best_val_loss = float('inf')
-    best_rho = float('-inf')
+    best_val_loss = float("inf")
+    best_rho = float("-inf")
     epochs_no_improve = 0
 
-    history_fields = ['epoch', 'train_loss', 'val_loss', 'spearman_rho', 'pred_std']
+    history_fields = ["epoch", "train_loss", "val_loss", "spearman_rho", "pred_std"]
     if checkpoint_path is not None:
-        history_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv'
+        history_path = f"{checkpoint_path}_fold{fold}_{run_timestamp}_history.csv"
         os.makedirs(os.path.dirname(history_path), exist_ok=True)
-        history_file = open(history_path, 'w', newline='')
+        history_file = open(history_path, "w", newline="")
         history_writer = csv.DictWriter(history_file, fieldnames=history_fields)
         history_writer.writeheader()
         history_file.flush()
@@ -511,49 +558,65 @@ def train_mem_model(
         history_writer = None
 
     # Initial evaluation
-    save_path = os.path.join(preds_dir, f'epoch_000_fold{fold}.csv') if preds_dir else None
-    logger.info('*' * 40)
-    logger.info('Initial evaluation')
+    save_path = os.path.join(preds_dir, f"epoch_000_fold{fold}.csv") if preds_dir else None
+    logger.info("*" * 40)
+    logger.info("Initial evaluation")
     init_val_loss, init_rho, init_pred_std = evaluate_mem_model(
-        model, val_loader, device, criterion, save_path)
-    logger.info('Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f',
-                init_val_loss, init_rho, init_pred_std)
-    logger.info('*' * 40)
+        model, val_loader, device, criterion, save_path
+    )
+    logger.info(
+        "Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f",
+        init_val_loss,
+        init_rho,
+        init_pred_std,
+    )
+    logger.info("*" * 40)
 
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
-        save_path = os.path.join(preds_dir, f'epoch_{epoch+1:03d}_fold{fold}.csv') if preds_dir else None
+        save_path = (
+            os.path.join(preds_dir, f"epoch_{epoch + 1:03d}_fold{fold}.csv") if preds_dir else None
+        )
 
-        with tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}') as pbar:
+        with tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}") as pbar:
             for _, images, targets in pbar:
-                images  = images.to(device)
+                images = images.to(device)
                 targets = targets.to(device)
 
                 optimizer.zero_grad()
                 preds = model(images).squeeze(1)  # [B]
-                loss  = criterion(preds, targets)
+                loss = criterion(preds, targets)
                 loss.backward()
                 optimizer.step()
 
                 total_loss += loss.item() * images.size(0)
-                pbar.set_postfix({'loss': loss.item()})
+                pbar.set_postfix({"loss": loss.item()})
 
         avg_train_loss = total_loss / len(train_loader.dataset)
         avg_val_loss, rho, pred_std = evaluate_mem_model(
-            model, val_loader, device, criterion, save_path)
+            model, val_loader, device, criterion, save_path
+        )
 
-        logger.info('Epoch %d: Train MSE: %.4f  |  Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f',
-                    epoch + 1, avg_train_loss, avg_val_loss, rho, pred_std)
+        logger.info(
+            "Epoch %d: Train MSE: %.4f  |  Val MSE: %.4f  |  Spearman r: %.4f  |  Pred std: %.4f",
+            epoch + 1,
+            avg_train_loss,
+            avg_val_loss,
+            rho,
+            pred_std,
+        )
 
         if history_writer is not None:
-            history_writer.writerow({
-                'epoch': epoch + 1,
-                'train_loss': avg_train_loss,
-                'val_loss': avg_val_loss,
-                'spearman_rho': rho,
-                'pred_std': pred_std,
-            })
+            history_writer.writerow(
+                {
+                    "epoch": epoch + 1,
+                    "train_loss": avg_train_loss,
+                    "val_loss": avg_val_loss,
+                    "spearman_rho": rho,
+                    "pred_std": pred_std,
+                }
+            )
             history_file.flush()
 
         if avg_val_loss < best_val_loss:
@@ -561,31 +624,41 @@ def train_mem_model(
             best_rho = rho  # record rho at the checkpoint epoch
             epochs_no_improve = 0
             if save_checkpoint and checkpoint_path is not None:
-                chk_path = f'{checkpoint_path}_fold{fold}_{run_timestamp}.pth'
-                os.makedirs(os.path.dirname(chk_path) or '.', exist_ok=True)
-                torch.save({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_loss': avg_val_loss,
-                    'spearman_rho': rho,
-                    'rng_state': torch.get_rng_state(),
-                    'cuda_rng_state': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
-                    'numpy_rng_state': np.random.get_state(),
-                    'timestamp': run_timestamp,
-                }, chk_path)
-                logger.info('  -> Checkpoint saved (epoch %d)', epoch + 1)
+                chk_path = f"{checkpoint_path}_fold{fold}_{run_timestamp}.pth"
+                os.makedirs(os.path.dirname(chk_path) or ".", exist_ok=True)
+                torch.save(
+                    {
+                        "epoch": epoch + 1,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "val_loss": avg_val_loss,
+                        "spearman_rho": rho,
+                        "rng_state": torch.get_rng_state(),
+                        "cuda_rng_state": torch.cuda.get_rng_state_all()
+                        if torch.cuda.is_available()
+                        else None,
+                        "numpy_rng_state": np.random.get_state(),
+                        "timestamp": run_timestamp,
+                    },
+                    chk_path,
+                )
+                logger.info("  -> Checkpoint saved (epoch %d)", epoch + 1)
         else:
             epochs_no_improve += 1
-        logger.info('Epochs without improvement: %d', epochs_no_improve)
+        logger.info("Epochs without improvement: %d", epochs_no_improve)
 
         if epochs_no_improve == early_stopping_patience:
-            logger.info('Early stopping triggered at epoch %d', epoch + 1)
+            logger.info("Early stopping triggered at epoch %d", epoch + 1)
             if test_loader is not None:
                 test_loss, test_rho, test_pred_std = evaluate_mem_model(
-                    model, test_loader, device, criterion)
-                logger.info('Final Test MSE: %.4f  |  Final Test Spearman r: %.4f  |  Final Test Pred std: %.4f',
-                            test_loss, test_rho, test_pred_std)
+                    model, test_loader, device, criterion
+                )
+                logger.info(
+                    "Final Test MSE: %.4f  |  Final Test Spearman r: %.4f  |  Final Test Pred std: %.4f",
+                    test_loss,
+                    test_rho,
+                    test_pred_std,
+                )
             if history_file is not None:
                 history_file.close()
             break
@@ -608,6 +681,7 @@ def _seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     import random as _random
+
     _random.seed(worker_seed)
 
 
@@ -624,17 +698,17 @@ def run_mem_training(config: dict) -> float:
     Returns:
         best_rho: Spearman ρ recorded at the best-loss checkpoint.
     """
-    run_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_path = config.get('log_path', None)
+    run_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = config.get("log_path", None)
     file_handler = None
 
     if log_path:
-        fold = config.get('fold', 1)
+        fold = config.get("fold", 1)
         base, ext = os.path.splitext(log_path)
-        log_path = f'{base}_fold{fold}_{run_timestamp}{ext}'
-        os.makedirs(os.path.dirname(log_path) or '.', exist_ok=True)
-        file_handler = logging.FileHandler(log_path, encoding='utf-8')
-        file_handler.setFormatter(logging.Formatter('%(asctime)s  %(levelname)s  %(message)s'))
+        log_path = f"{base}_fold{fold}_{run_timestamp}{ext}"
+        os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(message)s"))
         # Attach to the root logger so all module loggers write to the file.
         logging.getLogger().addHandler(file_handler)
 
@@ -642,8 +716,7 @@ def run_mem_training(config: dict) -> float:
     if not logging.getLogger().handlers or all(
         isinstance(h, logging.FileHandler) for h in logging.getLogger().handlers
     ):
-        logging.basicConfig(level=logging.INFO,
-                            format='%(asctime)s  %(levelname)s  %(message)s')
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 
     try:
         return _run_mem_training_impl(config, run_timestamp)
@@ -654,192 +727,234 @@ def run_mem_training(config: dict) -> float:
 
 
 def _run_mem_training_impl(config, run_timestamp):
-    seed_everything(config['random_seed'])
+    seed_everything(config["random_seed"])
 
-    model_type    = config.get('model_type', 'clip_hba_mem')
-    embeddings_dir = config.get('embeddings_dir', None)
+    model_type = config.get("model_type", "clip_hba_mem")
+    embeddings_dir = config.get("embeddings_dir", None)
     use_precomputed = embeddings_dir is not None
-    img_root = config.get('img_root', '')
-    memcat_meta_csv = config.get('memcat_meta_csv', None)
+    img_root = config.get("img_root", "")
+    memcat_meta_csv = config.get("memcat_meta_csv", None)
 
     # ------------------------------------------------------------------
     # Dataset construction
     # ------------------------------------------------------------------
     if use_precomputed:
-        fold      = config.get('fold', 1)
-        emb_dir   = pathlib.Path(embeddings_dir)
-        train_dataset = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_train.pt')
-        val_dataset   = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_val.pt')
-        test_dataset  = EmbeddingDataset(emb_dir / f'{model_type}_fold{fold}_test.pt')
-    elif model_type in ('perceptclip', 'clip_frozen_mlp'):
-        train_dataset = PerceptCLIPDataset(csv_file=config['train_csv'], img_root=img_root, memcat_meta_csv=memcat_meta_csv)
-        val_dataset   = PerceptCLIPDataset(csv_file=config['val_csv'],   img_root=img_root, memcat_meta_csv=memcat_meta_csv)
-        test_dataset  = PerceptCLIPDataset(csv_file=config['test_csv'],  img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        fold = config.get("fold", 1)
+        emb_dir = pathlib.Path(embeddings_dir)
+        train_dataset = EmbeddingDataset(emb_dir / f"{model_type}_fold{fold}_train.pt")
+        val_dataset = EmbeddingDataset(emb_dir / f"{model_type}_fold{fold}_val.pt")
+        test_dataset = EmbeddingDataset(emb_dir / f"{model_type}_fold{fold}_test.pt")
+    elif model_type in ("perceptclip", "clip_frozen_mlp"):
+        train_dataset = PerceptCLIPDataset(
+            csv_file=config["train_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
+        val_dataset = PerceptCLIPDataset(
+            csv_file=config["val_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
+        test_dataset = PerceptCLIPDataset(
+            csv_file=config["test_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
     else:
-        train_dataset = MemDataset(csv_file=config['train_csv'], img_root=img_root, memcat_meta_csv=memcat_meta_csv)
-        val_dataset   = MemDataset(csv_file=config['val_csv'],   img_root=img_root, memcat_meta_csv=memcat_meta_csv)
-        test_dataset  = MemDataset(csv_file=config['test_csv'],  img_root=img_root, memcat_meta_csv=memcat_meta_csv)
+        train_dataset = MemDataset(
+            csv_file=config["train_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
+        val_dataset = MemDataset(
+            csv_file=config["val_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
+        test_dataset = MemDataset(
+            csv_file=config["test_csv"], img_root=img_root, memcat_meta_csv=memcat_meta_csv
+        )
 
-    logger.info('[Data] Train: %d samples | Val: %d samples | Test: %d samples',
-                len(train_dataset), len(val_dataset), len(test_dataset))
+    logger.info(
+        "[Data] Train: %d samples | Val: %d samples | Test: %d samples",
+        len(train_dataset),
+        len(val_dataset),
+        len(test_dataset),
+    )
 
     # Optional: subsample training set (useful for fast hyperparameter sweeps)
-    train_frac = config.get('train_fraction', 1.0)
+    train_frac = config.get("train_fraction", 1.0)
     if train_frac < 1.0:
         n_orig = len(train_dataset)
         n_sub = max(1, int(n_orig * train_frac))
         if use_precomputed:
             _rng = torch.Generator()
-            _rng.manual_seed(config['random_seed'])
+            _rng.manual_seed(config["random_seed"])
             _indices = torch.randperm(n_orig, generator=_rng)[:n_sub].tolist()
             train_dataset = Subset(train_dataset, _indices)
         else:
-            train_dataset.annotations = (
-                train_dataset.annotations
-                .sample(n=n_sub, random_state=config['random_seed'])
-                .reset_index(drop=True)
-            )
-        logger.info('[Data] Subsampled train set: %d/%d (%.0f%%)', n_sub, n_orig, train_frac * 100)
+            train_dataset.annotations = train_dataset.annotations.sample(
+                n=n_sub, random_state=config["random_seed"]
+            ).reset_index(drop=True)
+        logger.info("[Data] Subsampled train set: %d/%d (%.0f%%)", n_sub, n_orig, train_frac * 100)
 
     _, feat0, score0 = train_dataset[0]
-    logger.info('[Data] sample feature tensor shape: %s', tuple(feat0.shape))
-    logger.info('[Data] sample score: %.4f', score0.item())
+    logger.info("[Data] sample feature tensor shape: %s", tuple(feat0.shape))
+    logger.info("[Data] sample score: %.4f", score0.item())
     if use_precomputed:
         _underlying = train_dataset.dataset if isinstance(train_dataset, Subset) else train_dataset
-        logger.info('[Data] Score range: min %.4f to max %.4f',
-                    _underlying.scores.min(), _underlying.scores.max())
+        logger.info(
+            "[Data] Score range: min %.4f to max %.4f",
+            _underlying.scores.min(),
+            _underlying.scores.max(),
+        )
     else:
-        scores = train_dataset.annotations['score']
-        logger.info('[Data] Score range: min %.4f to max %.4f', scores.min(), scores.max())
+        scores = train_dataset.annotations["score"]
+        logger.info("[Data] Score range: min %.4f to max %.4f", scores.min(), scores.max())
 
     # EmbeddingDataset serves in-memory tensors — no disk I/O per batch, so
     # multiple workers only add IPC overhead.  Image-based datasets benefit
     # from workers for parallel decode and augmentation.
     if use_precomputed:
-        _num_workers      = 0
-        _persistent       = False
-        _worker_init_fn   = None
+        _num_workers = 0
+        _persistent = False
+        _worker_init_fn = None
     else:
-        _num_workers      = 8
-        _persistent       = True
-        _worker_init_fn   = _seed_worker
+        _num_workers = 8
+        _persistent = True
+        _worker_init_fn = _seed_worker
 
     _g = torch.Generator()
-    _g.manual_seed(config['random_seed'])
-    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'],
-                              shuffle=True, num_workers=_num_workers,
-                              pin_memory=True, persistent_workers=_persistent,
-                              generator=_g, worker_init_fn=_worker_init_fn)
-    val_loader   = DataLoader(val_dataset,   batch_size=config['batch_size'],
-                              shuffle=False, num_workers=_num_workers,
-                              pin_memory=True, persistent_workers=_persistent)
-    test_loader  = DataLoader(test_dataset,  batch_size=config['batch_size'],
-                              shuffle=False, num_workers=_num_workers,
-                              pin_memory=True, persistent_workers=_persistent)
+    _g.manual_seed(config["random_seed"])
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=_num_workers,
+        pin_memory=True,
+        persistent_workers=_persistent,
+        generator=_g,
+        worker_init_fn=_worker_init_fn,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False,
+        num_workers=_num_workers,
+        pin_memory=True,
+        persistent_workers=_persistent,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False,
+        num_workers=_num_workers,
+        pin_memory=True,
+        persistent_workers=_persistent,
+    )
 
     # ------------------------------------------------------------------
     # Model construction
     # ------------------------------------------------------------------
     if use_precomputed:
         model = MLPOnlyHead(
-            hidden_dims=config.get('hidden_dims', (256, 128)),
-            dropout_rate=config.get('dropout_rate', 0.5),
-            activation=config.get('activation', 'relu'),
-            input_dim=config.get('input_dim', 768),
+            hidden_dims=config.get("hidden_dims", (256, 128)),
+            dropout_rate=config.get("dropout_rate", 0.5),
+            activation=config.get("activation", "relu"),
+            input_dim=config.get("input_dim", 768),
         )
-    elif model_type == 'clip_hba_mem':
+    elif model_type == "clip_hba_mem":
         model = CLIPHBAMem(
-            backbone_checkpoint=config['backbone_checkpoint'],
-            backbone_name=config['backbone'],
-            vision_layers=config['vision_layers'],
-            transformer_layers=config['transformer_layers'],
-            rank=config['rank'],
-            hidden_dims=config.get('hidden_dims', (512, 256)),
-            dropout_rate=config.get('dropout_rate', 0.5),
+            backbone_checkpoint=config["backbone_checkpoint"],
+            backbone_name=config["backbone"],
+            vision_layers=config["vision_layers"],
+            transformer_layers=config["transformer_layers"],
+            rank=config["rank"],
+            hidden_dims=config.get("hidden_dims", (512, 256)),
+            dropout_rate=config.get("dropout_rate", 0.5),
         )
-    elif model_type == 'clip_frozen_mlp':
+    elif model_type == "clip_frozen_mlp":
         model = CLIPFrozenMLP(
-            hidden_dims=config.get('hidden_dims', (512, 256)),
-            dropout_rate=config.get('dropout_rate', 0.5),
-            activation=config.get('activation', 'relu'),
+            hidden_dims=config.get("hidden_dims", (512, 256)),
+            dropout_rate=config.get("dropout_rate", 0.5),
+            activation=config.get("activation", "relu"),
         )
-    elif model_type == 'perceptclip':
+    elif model_type == "perceptclip":
         model = clip_lora_model()
     else:
-        raise ValueError(f'Unknown model_type: {model_type!r}')
+        raise ValueError(f"Unknown model_type: {model_type!r}")
 
-    if config['cuda'] == -1:
-        device = torch.device('cuda')
-    elif config['cuda'] == 0:
-        device = torch.device('cuda:0')
-    elif config['cuda'] == 1:
-        device = torch.device('cuda:1')
+    if config["cuda"] == -1:
+        device = torch.device("cuda")
+    elif config["cuda"] == 0:
+        device = torch.device("cuda:0")
+    elif config["cuda"] == 1:
+        device = torch.device("cuda:1")
     else:
-        device = torch.device('cpu')
+        device = torch.device("cpu")
 
     # Use DataParallel if using all GPUs
-    if config['cuda'] == -1:
-        logger.info('Using %d GPUs', torch.cuda.device_count())
+    if config["cuda"] == -1:
+        logger.info("Using %d GPUs", torch.cuda.device_count())
         model = DataParallel(model)
 
     model.to(device)
 
-    logger.info('[Model] Probe forward pass...')
+    logger.info("[Model] Probe forward pass...")
     model.eval()
     with torch.no_grad():
         if use_precomputed:
-            _dummy_emb = torch.randn(2, config.get('input_dim', 768)).to(device)
+            _dummy_emb = torch.randn(2, config.get("input_dim", 768)).to(device)
             _out = model(_dummy_emb)
-            logger.info('[Model] MLPOnlyHead output shape: %s  (squeezed: %s)',
-                        tuple(_out.shape), tuple(_out.squeeze(1).shape))
-            logger.info('[Model] Output range: [%.4f, %.4f]',
-                        _out.min().item(), _out.max().item())
+            logger.info(
+                "[Model] MLPOnlyHead output shape: %s  (squeezed: %s)",
+                tuple(_out.shape),
+                tuple(_out.squeeze(1).shape),
+            )
+            logger.info("[Model] Output range: [%.4f, %.4f]", _out.min().item(), _out.max().item())
         else:
             _dummy_image = torch.randn(2, 3, 224, 224).to(device)
-            if model_type == 'clip_hba_mem':
+            if model_type == "clip_hba_mem":
                 _raw = model.module if isinstance(model, DataParallel) else model
                 _emb = _raw.backbone.clip_model.encode_image(
-                    _dummy_image, _raw.backbone.pos_embedding)
-                logger.info('[Model] encode_image output shape: %s', tuple(_emb.shape))
-            elif model_type == 'clip_frozen_mlp':
+                    _dummy_image, _raw.backbone.pos_embedding
+                )
+                logger.info("[Model] encode_image output shape: %s", tuple(_emb.shape))
+            elif model_type == "clip_frozen_mlp":
                 _raw = model.module if isinstance(model, DataParallel) else model
                 _vis_out = _raw.vision_model(_dummy_image)
                 _emb = _raw.visual_projection(_vis_out[1])
-                logger.info('[Model] vision_model + projection output shape: %s', tuple(_emb.shape))
+                logger.info("[Model] vision_model + projection output shape: %s", tuple(_emb.shape))
             _out = model(_dummy_image)
-            logger.info('[Model] Raw output shape: %s  (squeezed: %s)',
-                        tuple(_out.shape), tuple(_out.squeeze(1).shape))
-            logger.info('[Model] Output range: [%.4f, %.4f]',
-                        _out.min().item(), _out.max().item())
+            logger.info(
+                "[Model] Raw output shape: %s  (squeezed: %s)",
+                tuple(_out.shape),
+                tuple(_out.squeeze(1).shape),
+            )
+            logger.info("[Model] Output range: [%.4f, %.4f]", _out.min().item(), _out.max().item())
     model.train()
 
     # Build optimizer — unwrap DataParallel to reach mlp_parameters()
     _raw_model = model.module if isinstance(model, DataParallel) else model
-    if hasattr(_raw_model, 'mlp_parameters'):
+    if hasattr(_raw_model, "mlp_parameters"):
         opt_params = _raw_model.mlp_parameters()
     else:
         opt_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(
         opt_params,
-        lr=config['lr'],
-        weight_decay=config.get('weight_decay', 1e-2),
+        lr=config["lr"],
+        weight_decay=config.get("weight_decay", 1e-2),
     )
 
-    logger.info('Model Configuration:')
+    logger.info("Model Configuration:")
     for key, value in config.items():
-        logger.info('  %s: %s', key, value)
-    logger.info('Trainable parameters: %s', f'{count_trainable_parameters(model):,}')
+        logger.info("  %s: %s", key, value)
+    logger.info("Trainable parameters: %s", f"{count_trainable_parameters(model):,}")
 
     best_rho = train_mem_model(
-        model, train_loader, val_loader, device,
-        optimizer, config['criterion'],
-        config['epochs'],
-        config['early_stopping_patience'],
-        config['checkpoint_path'],
+        model,
+        train_loader,
+        val_loader,
+        device,
+        optimizer,
+        config["criterion"],
+        config["epochs"],
+        config["early_stopping_patience"],
+        config["checkpoint_path"],
         test_loader,
-        config['fold'],
-        preds_dir=config.get('preds_dir', None),
+        config["fold"],
+        preds_dir=config.get("preds_dir", None),
         run_timestamp=run_timestamp,
-        save_checkpoint=config.get('save_checkpoint', False),
+        save_checkpoint=config.get("save_checkpoint", False),
     )
     return best_rho

@@ -1,16 +1,44 @@
-[tool.ruff]
 target-version = "py311"
 line-length = 100
 
-[tool.ruff.lint]
+# Exclude notebooks (exploratory code, not production) and generated/data dirs
+exclude = [
+    "**/*.ipynb",
+    "CLIP-HBA/Data/",
+    "CLIP-HBA/figures/",
+    ".git",
+    "__pycache__",
+]
+
+[lint]
 # E/W: pycodestyle   F: pyflakes   I: isort
 select = ["E", "F", "W", "I"]
 # Long lines are tolerated in scientific code (array literals, long config dicts)
 ignore = ["E501"]
 
-[tool.ruff.lint.per-file-ignores]
-# __init__.py re-exports are intentional; star imports in src/ are legacy CLIP code
-"src/models/**/__init__.py" = ["F401"]
-"src/models/**/clip.py" = ["F401", "F811"]
-# Notebooks and figure scripts have relaxed rules
-"CLIP-HBA/figures/**" = ["E402", "F401"]
+[lint.per-file-ignores]
+# ── OpenAI CLIP source (vendored, not our code) ──────────────────────────────
+# E741: ambiguous variable name `l` appears in original CLIP transformer code
+# E722: bare except in original simple_tokenizer.py
+# E402: conditional imports after sys.path manipulation
+# F401: __init__.py re-exports are intentional
+# F811: redefined names are intentional in CLIP model variants
+"src/models/**" = ["E741", "E722", "E402", "F401", "F403", "F405", "F811"]
+
+# ── MEG / inference pipeline files that use wildcard imports ─────────────────
+# These files do `from functions.xxx import *` as a design pattern inherited
+# from the original CLIP-HBA codebase.  Fixing them requires a larger
+# refactor outside the scope of this PR.
+# F403: star import used
+# F405: name may come from star import
+# F821: undefined name (false positive when name comes from star import)
+# E402: imports after sys.path.append('../') are unavoidable here
+"CLIP-HBA/functions/inference_meg_group_pipeline.py" = ["E402"]
+"CLIP-HBA/functions/inference_meg_individual_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/functions/inference_behavior_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/functions/train_meg_individual_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/functions/train_meg_things_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/functions/train_perceptclip_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/functions/train_behavior_things_pipeline.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/extract_embeddings_meg.py" = ["F403", "F405", "F821", "E402"]
+"CLIP-HBA/extract_things_meg_embeddings.py" = ["F403", "F405", "F821", "E402"]

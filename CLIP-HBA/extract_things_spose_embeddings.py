@@ -20,23 +20,21 @@ Usage
 """
 
 import argparse
-import os
 import pathlib
 
 import numpy as np
 import pandas as pd
 import torch
-from PIL import Image
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
-from tqdm import tqdm
-
 from functions.spose_dimensions import classnames66
 from functions.train_behavior_things_pipeline import (
     CLIPHBA,
     apply_dora_to_ViT,
     seed_everything,
 )
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+from tqdm import tqdm
 
 
 def discover_things_images(img_dir: str) -> list[str]:
@@ -46,8 +44,8 @@ def discover_things_images(img_dir: str) -> list[str]:
     for concept_dir in sorted(img_dir.iterdir()):
         if not concept_dir.is_dir():
             continue
-        for img_path in sorted(concept_dir.glob('*.jpg')):
-            rel_paths.append(f'{concept_dir.name}/{img_path.name}')
+        for img_path in sorted(concept_dir.glob("*.jpg")):
+            rel_paths.append(f"{concept_dir.name}/{img_path.name}")
     return rel_paths
 
 
@@ -62,14 +60,16 @@ class ThingsImageDataset(Dataset):
     def __init__(self, image_rel_paths: list[str], img_dir: str) -> None:
         self.image_rel_paths = image_rel_paths
         self.img_dir = pathlib.Path(img_dir)
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.52997664, 0.48070561, 0.41943838],
-                std=[0.27608301, 0.26593025, 0.28238822],
-            ),
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.52997664, 0.48070561, 0.41943838],
+                    std=[0.27608301, 0.26593025, 0.28238822],
+                ),
+            ]
+        )
 
     def __len__(self) -> int:
         return len(self.image_rel_paths)
@@ -90,8 +90,8 @@ def extract_spose_embeddings(
     backbone_checkpoint: str,
     device: torch.device,
     batch_size: int = 64,
-    #num_workers: int = 4,
-    backbone_name: str = 'ViT-L/14',
+    # num_workers: int = 4,
+    backbone_name: str = "ViT-L/14",
     vision_layers: int = 2,
     transformer_layers: int = 1,
     rank: int = 32,
@@ -114,7 +114,7 @@ def extract_spose_embeddings(
         DataFrame with columns ``image_name, 0, 1, ..., 65``.
     """
     # Build backbone
-    pos_embedding = (backbone_name != 'RN50')
+    pos_embedding = backbone_name != "RN50"
     model = CLIPHBA(
         classnames=classnames66,
         backbone_name=backbone_name,
@@ -128,10 +128,10 @@ def extract_spose_embeddings(
     )
 
     # Load DoRA checkpoint
-    state_dict = torch.load(backbone_checkpoint, map_location='cpu')
-    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    state_dict = torch.load(backbone_checkpoint, map_location="cpu")
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
-    print(f'[Backbone] Loaded {len(state_dict)} keys from {backbone_checkpoint}')
+    print(f"[Backbone] Loaded {len(state_dict)} keys from {backbone_checkpoint}")
 
     # Freeze all parameters
     for p in model.parameters():
@@ -145,14 +145,14 @@ def extract_spose_embeddings(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        #num_workers=num_workers,
-        #pin_memory=(device.type == 'cuda'),
+        # num_workers=num_workers,
+        # pin_memory=(device.type == 'cuda'),
     )
 
     all_names: list[str] = []
     all_embeddings: list[np.ndarray] = []
 
-    with torch.no_grad(), tqdm(loader, desc='Extracting SPoSE embeddings') as pbar:
+    with torch.no_grad(), tqdm(loader, desc="Extracting SPoSE embeddings") as pbar:
         for names, images in pbar:
             images = images.to(device)
             preds = model(images)  # [B, 66]
@@ -161,12 +161,12 @@ def extract_spose_embeddings(
 
     embeddings = np.concatenate(all_embeddings, axis=0)  # [N, 66]
     df = pd.DataFrame(embeddings, columns=[str(i) for i in range(66)])
-    df.insert(0, 'image_name', all_names)
+    df.insert(0, "image_name", all_names)
 
     # Free GPU memory
     model.cpu()
     del model
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
     return df
@@ -174,66 +174,78 @@ def extract_spose_embeddings(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description='Extract 66-dim SPoSE embeddings from CLIP-HBA-Behavior for THINGS images.',
+        description="Extract 66-dim SPoSE embeddings from CLIP-HBA-Behavior for THINGS images.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--img_dir',
-        default='Z:/multimodal_brain_inspired/THINGS_images',
-        help='Root directory with 1854 concept subfolders, each containing .jpg images.',
+        "--img_dir",
+        default="Z:/multimodal_brain_inspired/THINGS_images",
+        help="Root directory with 1854 concept subfolders, each containing .jpg images.",
     )
     parser.add_argument(
-        '--backbone_checkpoint',
-        default='./Data/lamem/epoch97_dora_params.pth',
-        help='Path to the CLIP-HBA DoRA checkpoint.',
+        "--backbone_checkpoint",
+        default="./Data/lamem/epoch97_dora_params.pth",
+        help="Path to the CLIP-HBA DoRA checkpoint.",
     )
     parser.add_argument(
-        '--out_dir',
-        default='Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/THINGS',
-        help='Directory to save the output CSV.',
+        "--out_dir",
+        default="Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/THINGS",
+        help="Directory to save the output CSV.",
     )
     parser.add_argument(
-        '--out_filename',
-        default='things_spose_embeddings_66d.csv',
-        help='Output CSV filename.',
+        "--out_filename",
+        default="things_spose_embeddings_66d.csv",
+        help="Output CSV filename.",
     )
     parser.add_argument(
-        '--batch_size', type=int, default=64,
-        help='Batch size for backbone inference.',
+        "--batch_size",
+        type=int,
+        default=64,
+        help="Batch size for backbone inference.",
     )
     # parser.add_argument(
     #    '--num_workers', type=int, default=4,
     #    help='DataLoader worker count.',
     # )
     parser.add_argument(
-        '--cuda', type=int, default=0,
-        help='GPU index. Use -1 for CPU.',
+        "--cuda",
+        type=int,
+        default=0,
+        help="GPU index. Use -1 for CPU.",
     )
     parser.add_argument(
-        '--seed', type=int, default=1,
-        help='Random seed.',
+        "--seed",
+        type=int,
+        default=1,
+        help="Random seed.",
     )
     parser.add_argument(
-        '--vision_layers', type=int, default=2,
-        help='Number of DoRA-patched vision layers.',
+        "--vision_layers",
+        type=int,
+        default=2,
+        help="Number of DoRA-patched vision layers.",
     )
     parser.add_argument(
-        '--transformer_layers', type=int, default=1,
-        help='Number of DoRA-patched text layers.',
+        "--transformer_layers",
+        type=int,
+        default=1,
+        help="Number of DoRA-patched text layers.",
     )
     parser.add_argument(
-        '--rank', type=int, default=32,
-        help='DoRA rank.',
+        "--rank",
+        type=int,
+        default=32,
+        help="DoRA rank.",
     )
     args = parser.parse_args()
 
     seed_everything(args.seed)
 
-    device = torch.device('cpu') if args.cuda == -1 else torch.device(f'cuda:{args.cuda}')
+    device = torch.device("cpu") if args.cuda == -1 else torch.device(f"cuda:{args.cuda}")
 
     # Discover all .jpg images under concept subfolders
     image_rel_paths = discover_things_images(args.img_dir)
-    print(f'Discovered {len(image_rel_paths)} images across concept subfolders in {args.img_dir}')
+    print(f"Discovered {len(image_rel_paths)} images across concept subfolders in {args.img_dir}")
 
     # Extract embeddings
     df = extract_spose_embeddings(
@@ -242,7 +254,7 @@ def main() -> None:
         backbone_checkpoint=args.backbone_checkpoint,
         device=device,
         batch_size=args.batch_size,
-        #num_workers=args.num_workers,
+        # num_workers=args.num_workers,
         vision_layers=args.vision_layers,
         transformer_layers=args.transformer_layers,
         rank=args.rank,
@@ -253,8 +265,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / args.out_filename
     df.to_csv(out_path, index=False)
-    print(f'\nSaved {len(df)} rows x {df.shape[1]} columns -> {out_path}')
+    print(f"\nSaved {len(df)} rows x {df.shape[1]} columns -> {out_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

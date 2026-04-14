@@ -1,3 +1,3 @@
 from .CLIPs import *
 
-__all__ = [ 'COMPONENTS' ]
+__all__ = ["COMPONENTS"]

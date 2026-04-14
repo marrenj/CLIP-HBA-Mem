@@ -1,77 +1,81 @@
-from functions.train_mem_pipeline import run_mem_training
-import torch.nn as nn
 import os
+
+import torch.nn as nn
+from functions.train_mem_pipeline import run_mem_training
 
 
 def main():
-    data_dir      = os.environ.get('DATA_DIR', './Data')
-    training_data = os.environ.get('TRAINING_DATA', 'combined_lamem_memcat')  # 'lamem' | 'combined_lamem_memcat'
-    fold = int(os.environ.get('FOLD', 1))
+    data_dir = os.environ.get("DATA_DIR", "./Data")
+    training_data = os.environ.get(
+        "TRAINING_DATA", "combined_lamem_memcat"
+    )  # 'lamem' | 'combined_lamem_memcat'
+    fold = int(os.environ.get("FOLD", 1))
 
-    if training_data == 'lamem':
-        train_csv = f'{data_dir}/lamem/lamem_train_{fold}.csv'
-        val_csv   = f'{data_dir}/lamem/lamem_val_{fold}.csv'
-        test_csv  = f'{data_dir}/lamem/lamem_test_{fold}.csv'
-        img_root  = os.environ.get('LAMEM_IMG_ROOT', f'{data_dir}/lamem/images/')
+    if training_data == "lamem":
+        train_csv = f"{data_dir}/lamem/lamem_train_{fold}.csv"
+        val_csv = f"{data_dir}/lamem/lamem_val_{fold}.csv"
+        test_csv = f"{data_dir}/lamem/lamem_test_{fold}.csv"
+        img_root = os.environ.get("LAMEM_IMG_ROOT", f"{data_dir}/lamem/images/")
         memcat_meta_csv = None
-    elif training_data == 'combined_lamem_memcat':
-        train_csv = f'{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv'
-        val_csv   = f'{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv'
-        test_csv  = f'{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv'
-        img_root  = {'lamem':  os.environ.get('LAMEM_IMG_ROOT',  f'{data_dir}/lamem/images/'),
-                     'memcat': os.environ.get('MEMCAT_IMG_ROOT', f'{data_dir}/memcat/images/')}
-        memcat_meta_csv = os.environ.get('MEMCAT_META_CSV', f'{data_dir}/memcat/memcat_image_data.csv')
+    elif training_data == "combined_lamem_memcat":
+        train_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_train_split_{fold:02d}.csv"
+        val_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_val_split_{fold:02d}.csv"
+        test_csv = f"{data_dir}/combined_lamem_memcat/lamem_memcat_test_split_{fold:02d}.csv"
+        img_root = {
+            "lamem": os.environ.get("LAMEM_IMG_ROOT", f"{data_dir}/lamem/images/"),
+            "memcat": os.environ.get("MEMCAT_IMG_ROOT", f"{data_dir}/memcat/images/"),
+        }
+        memcat_meta_csv = os.environ.get(
+            "MEMCAT_META_CSV", f"{data_dir}/memcat/memcat_image_data.csv"
+        )
     else:
-        raise ValueError(f"Unknown TRAINING_DATA: {training_data!r}. "
-                         f"Choose 'lamem' or 'combined_lamem_memcat'.")
+        raise ValueError(
+            f"Unknown TRAINING_DATA: {training_data!r}. Choose 'lamem' or 'combined_lamem_memcat'."
+        )
 
     config = {
-        'model_type':    'clip_frozen_mlp',  # 'clip_hba_mem' | 'perceptclip' | 'clip_frozen_mlp'
-        'training_data': training_data,
-
+        "model_type": "clip_frozen_mlp",  # 'clip_hba_mem' | 'perceptclip' | 'clip_frozen_mlp'
+        "training_data": training_data,
         # --- Data ---
-        'fold':      fold,
-        'train_csv': train_csv,
-        'val_csv':   val_csv,
-        'test_csv':  test_csv,
-        'img_root':        img_root,
-        'memcat_meta_csv': memcat_meta_csv,
-        'preds_dir': './preds/',
-        'log_path':  './logs/mem.log',
-        'save_checkpoint': True,
-
+        "fold": fold,
+        "train_csv": train_csv,
+        "val_csv": val_csv,
+        "test_csv": test_csv,
+        "img_root": img_root,
+        "memcat_meta_csv": memcat_meta_csv,
+        "preds_dir": "./preds/",
+        "log_path": "./logs/mem.log",
+        "save_checkpoint": True,
         # --- Precomputed embeddings (optional, ~100x epoch speedup) ---
         # Run extract_embeddings.slurm once to populate this directory, then
         # uncomment the line below to skip backbone inference during training.
-        'embeddings_dir': "Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/combined_lamem_memcat/embeddings",
-
+        "embeddings_dir": "Z:/multimodal_brain_inspired/marren/CLIP-HBA-Mem/CLIP-HBA/combined_lamem_memcat/embeddings",
         # --- Backbone (frozen CLIP-HBA) ---
-        'backbone_checkpoint': f'{data_dir}/lamem/epoch97_dora_params.pth',
-        'backbone':            'ViT-L/14',
-        'vision_layers':       2,   # must match the checkpoint's DoRA config
-        'transformer_layers':  1,
-        'rank':                32,
-
+        "backbone_checkpoint": f"{data_dir}/lamem/epoch97_dora_params.pth",
+        "backbone": "ViT-L/14",
+        "vision_layers": 2,  # must match the checkpoint's DoRA config
+        "transformer_layers": 1,
+        "rank": 32,
         # --- Device ---
-        'cuda': int(os.environ.get('CUDA_DEVICE', 0)),   # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
-
-        # --- MLP head --- 
-        'hidden_dims': (512, 256),
-        'dropout_rate': 0.5368288006192632,
-
+        "cuda": int(
+            os.environ.get("CUDA_DEVICE", 0)
+        ),  # 0=cuda:0, 1=cuda:1, -1=all GPUs (DataParallel), 2=cpu
+        # --- MLP head ---
+        "hidden_dims": (512, 256),
+        "dropout_rate": 0.5368288006192632,
         # --- Training ---
-        'epochs':                   300,
-        'early_stopping_patience':  20,
-        'lr': 1.230330642343937e-05,
-        'weight_decay': 0.0706470650894558,
-        'batch_size': 32,
-        'checkpoint_path':          './models/clip_frozen_mlp',
-        'random_seed':              1,
-        'criterion':                nn.MSELoss(),
+        "epochs": 300,
+        "early_stopping_patience": 20,
+        "lr": 1.230330642343937e-05,
+        "weight_decay": 0.0706470650894558,
+        "batch_size": 32,
+        "checkpoint_path": "./models/clip_frozen_mlp",
+        "random_seed": 1,
+        "criterion": nn.MSELoss(),
     }
 
     run_mem_training(config)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

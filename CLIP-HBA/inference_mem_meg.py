@@ -39,35 +39,32 @@ Output files
 """
 
 import argparse
-import csv
 import datetime
 import glob
 import os
 import pathlib
-import sys
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
+from functions.train_behavior_things_pipeline import seed_everything
+from functions.train_mem_pipeline import EmbeddingDataset, MLPOnlyHead
 from scipy.stats import spearmanr
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from functions.train_mem_pipeline import EmbeddingDataset, MLPOnlyHead
-from functions.train_behavior_things_pipeline import seed_everything
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 5))   # 281 timepoints at 5 ms resolution
-INPUT_DIM:       int       = 66
-MODEL_TYPE_BASE: str       = 'clip_hba_meg_mem'
+ALL_TIMEPOINTS: list[int] = list(range(-100, 1301, 5))  # 281 timepoints at 5 ms resolution
+INPUT_DIM: int = 66
+MODEL_TYPE_BASE: str = "clip_hba_meg_mem"
 
 
 # ---------------------------------------------------------------------------
 # Checkpoint resolution
 # ---------------------------------------------------------------------------
+
 
 def _infer_hidden_dims_from_state_dict(state_dict: dict) -> tuple[int, ...]:
     """Infer ``MLPOnlyHead`` hidden_dims from a checkpoint state_dict.
@@ -82,17 +79,17 @@ def _infer_hidden_dims_from_state_dict(state_dict: dict) -> tuple[int, ...]:
     """
     linear_out_dims: list[tuple[int, int]] = []
     for key, tensor in state_dict.items():
-        if key.startswith('mlp_head.') and key.endswith('.weight') and tensor.ndim == 2:
+        if key.startswith("mlp_head.") and key.endswith(".weight") and tensor.ndim == 2:
             try:
-                idx = int(key.split('.')[1])
+                idx = int(key.split(".")[1])
             except ValueError:
                 continue
             linear_out_dims.append((idx, tensor.shape[0]))
 
     if not linear_out_dims:
         raise ValueError(
-            'Could not infer hidden_dims: no mlp_head.*.weight keys found in '
-            'state_dict.  Was this checkpoint trained with MLPOnlyHead?'
+            "Could not infer hidden_dims: no mlp_head.*.weight keys found in "
+            "state_dict.  Was this checkpoint trained with MLPOnlyHead?"
         )
 
     linear_out_dims.sort(key=lambda pair: pair[0])
@@ -124,14 +121,14 @@ def _find_checkpoint(
     """
     candidate_patterns = [
         # Flat layout, original naming
-        os.path.join(checkpoint_dir, f'tp{timepoint_ms}_fold{fold}_*.pth'),
+        os.path.join(checkpoint_dir, f"tp{timepoint_ms}_fold{fold}_*.pth"),
         # Flat layout, *tp{tp}_*fold{fold}_*.pth (e.g. clip_hba_meg_mem_tp50_final_fold1_*.pth)
-        os.path.join(checkpoint_dir, f'*tp{timepoint_ms}_*fold{fold}_*.pth'),
+        os.path.join(checkpoint_dir, f"*tp{timepoint_ms}_*fold{fold}_*.pth"),
         # Nested under tp{tp}/ subdirectory
-        os.path.join(checkpoint_dir, f'tp{timepoint_ms}', f'*fold{fold}_*.pth'),
-        os.path.join(checkpoint_dir, f'tp{timepoint_ms}', f'*tp{timepoint_ms}_*fold{fold}_*.pth'),
+        os.path.join(checkpoint_dir, f"tp{timepoint_ms}", f"*fold{fold}_*.pth"),
+        os.path.join(checkpoint_dir, f"tp{timepoint_ms}", f"*tp{timepoint_ms}_*fold{fold}_*.pth"),
         # Recursive fallback
-        os.path.join(checkpoint_dir, '**', f'*tp{timepoint_ms}_*fold{fold}_*.pth'),
+        os.path.join(checkpoint_dir, "**", f"*tp{timepoint_ms}_*fold{fold}_*.pth"),
     ]
 
     matches: list[str] = []
@@ -143,12 +140,12 @@ def _find_checkpoint(
             break
 
     if not matches:
-        tried_lines = '\n    '.join(tried)
+        tried_lines = "\n    ".join(tried)
         raise FileNotFoundError(
-            f'No checkpoint found for tp={timepoint_ms} ms, fold={fold} '
-            f'in {checkpoint_dir!r}.\n'
-            f'  Patterns tried:\n    {tried_lines}\n'
-            f'  Run train_mem_meg.py first, or check the layout.'
+            f"No checkpoint found for tp={timepoint_ms} ms, fold={fold} "
+            f"in {checkpoint_dir!r}.\n"
+            f"  Patterns tried:\n    {tried_lines}\n"
+            f"  Run train_mem_meg.py first, or check the layout."
         )
     # Return the most recently modified file (handles multiple timestamps)
     return max(matches, key=os.path.getmtime)
@@ -157,6 +154,7 @@ def _find_checkpoint(
 # ---------------------------------------------------------------------------
 # Single-timepoint inference
 # ---------------------------------------------------------------------------
+
 
 def _run_single(
     timepoint_ms: int,
@@ -191,32 +189,32 @@ def _run_single(
         Summary dict with ``timepoint_ms``, ``fold``, ``spearman_rho``,
         ``spearman_p``, ``mse``, ``pred_std``, ``n_images``, ``checkpoint``.
     """
-    model_type = f'{MODEL_TYPE_BASE}_tp{timepoint_ms}'
-    emb_path = pathlib.Path(embeddings_dir) / f'{model_type}_fold{fold}_test.pt'
+    model_type = f"{MODEL_TYPE_BASE}_tp{timepoint_ms}"
+    emb_path = pathlib.Path(embeddings_dir) / f"{model_type}_fold{fold}_test.pt"
 
     if not emb_path.exists():
         raise FileNotFoundError(
-            f'Embedding file not found: {emb_path}\n'
-            f'  Run extract_embeddings_meg.py first.'
+            f"Embedding file not found: {emb_path}\n  Run extract_embeddings_meg.py first."
         )
 
     dataset = EmbeddingDataset(str(emb_path))
-    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     checkpoint_path = _find_checkpoint(checkpoint_dir, timepoint_ms, fold)
-    state_dict = torch.load(checkpoint_path, map_location='cpu')
-    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    state_dict = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
 
     # Auto-infer hidden_dims from the checkpoint shapes when the user
     # didn't pass --hidden_dims explicitly (hidden_dims is None then).
     effective_hidden_dims = (
-        hidden_dims if hidden_dims is not None
-        else _infer_hidden_dims_from_state_dict(state_dict)
+        hidden_dims if hidden_dims is not None else _infer_hidden_dims_from_state_dict(state_dict)
     )
 
-    print(f'[tp={timepoint_ms:+d} ms | fold {fold}]  '
-          f'{len(dataset)} images  |  checkpoint: {os.path.basename(checkpoint_path)}  |  '
-          f'hidden_dims={effective_hidden_dims}')
+    print(
+        f"[tp={timepoint_ms:+d} ms | fold {fold}]  "
+        f"{len(dataset)} images  |  checkpoint: {os.path.basename(checkpoint_path)}  |  "
+        f"hidden_dims={effective_hidden_dims}"
+    )
 
     model = MLPOnlyHead(
         hidden_dims=effective_hidden_dims,
@@ -227,51 +225,55 @@ def _run_single(
     model.to(device)
     model.eval()
 
-    all_paths:   list = []
-    all_preds:   list = []
+    all_paths: list = []
+    all_preds: list = []
     all_targets: list = []
 
     with torch.no_grad():
-        for image_paths, embeddings, scores in tqdm(loader, desc=f'  tp={timepoint_ms:+d}'):
+        for image_paths, embeddings, scores in tqdm(loader, desc=f"  tp={timepoint_ms:+d}"):
             embeddings = embeddings.to(device)
             preds = model(embeddings).squeeze(1).cpu().numpy()
             all_paths.extend(image_paths)
             all_preds.extend(preds)
             all_targets.extend(scores.numpy())
 
-    all_preds   = np.array(all_preds,   dtype=np.float32)
+    all_preds = np.array(all_preds, dtype=np.float32)
     all_targets = np.array(all_targets, dtype=np.float32)
 
     rho, p_val = spearmanr(all_preds, all_targets)
-    mse        = float(np.mean((all_preds - all_targets) ** 2))
-    pred_std   = float(all_preds.std())
+    mse = float(np.mean((all_preds - all_targets) ** 2))
+    pred_std = float(all_preds.std())
 
-    print(f'  Spearman rho: {rho:.4f} (p={p_val:.2e})  |  MSE: {mse:.6f}  |  '
-          f'Pred range: [{all_preds.min():.4f}, {all_preds.max():.4f}]  std: {pred_std:.4f}')
+    print(
+        f"  Spearman rho: {rho:.4f} (p={p_val:.2e})  |  MSE: {mse:.6f}  |  "
+        f"Pred range: [{all_preds.min():.4f}, {all_preds.max():.4f}]  std: {pred_std:.4f}"
+    )
 
     # Save per-image predictions
-    pred_csv = output_dir / f'tp{timepoint_ms}_fold{fold}_predictions.csv'
-    pd.DataFrame({
-        'image_path':   all_paths,
-        'pred_score':   all_preds,
-        'true_score':   all_targets,
-        'timepoint_ms': timepoint_ms,
-        'fold':         fold,
-    }).to_csv(pred_csv, index=False)
-    print(f'  -> {pred_csv}')
+    pred_csv = output_dir / f"tp{timepoint_ms}_fold{fold}_predictions.csv"
+    pd.DataFrame(
+        {
+            "image_path": all_paths,
+            "pred_score": all_preds,
+            "true_score": all_targets,
+            "timepoint_ms": timepoint_ms,
+            "fold": fold,
+        }
+    ).to_csv(pred_csv, index=False)
+    print(f"  -> {pred_csv}")
 
     model.cpu()
     del model
 
     return {
-        'timepoint_ms': timepoint_ms,
-        'fold':         fold,
-        'n_images':     len(dataset),
-        'spearman_rho': rho,
-        'spearman_p':   p_val,
-        'mse':          mse,
-        'pred_std':     pred_std,
-        'checkpoint':   checkpoint_path,
+        "timepoint_ms": timepoint_ms,
+        "fold": fold,
+        "n_images": len(dataset),
+        "spearman_rho": rho,
+        "spearman_p": p_val,
+        "mse": mse,
+        "pred_std": pred_std,
+        "checkpoint": checkpoint_path,
     }
 
 
@@ -288,7 +290,7 @@ _THINGS_SCORES_CACHE: dict[str, pd.DataFrame] = {}
 def _load_things_emb_csv(things_emb_csv: str) -> pd.DataFrame:
     """Load and cache the THINGS MEG embeddings CSV."""
     if things_emb_csv not in _THINGS_EMB_CACHE:
-        print(f'[THINGS] Loading embeddings CSV: {things_emb_csv}')
+        print(f"[THINGS] Loading embeddings CSV: {things_emb_csv}")
         _THINGS_EMB_CACHE[things_emb_csv] = pd.read_csv(things_emb_csv)
     return _THINGS_EMB_CACHE[things_emb_csv]
 
@@ -300,13 +302,13 @@ def _load_things_scores_csv(things_scores_csv: str) -> pd.DataFrame:
     with the image_name derived from the file_path basename.
     """
     if things_scores_csv not in _THINGS_SCORES_CACHE:
-        print(f'[THINGS] Loading scores CSV:     {things_scores_csv}')
+        print(f"[THINGS] Loading scores CSV:     {things_scores_csv}")
         scores_df = pd.read_csv(things_scores_csv)
         # Derive image_name from file_path (e.g. "images/knot/knot_12s.jpg" -> "knot_12s.jpg")
-        scores_df['image_name'] = scores_df['file_path'].apply(
+        scores_df["image_name"] = scores_df["file_path"].apply(
             lambda p: pathlib.PurePosixPath(p).name
         )
-        scores_df = scores_df[['image_name', 'cr']].dropna(subset=['cr'])
+        scores_df = scores_df[["image_name", "cr"]].dropna(subset=["cr"])
         _THINGS_SCORES_CACHE[things_scores_csv] = scores_df
     return _THINGS_SCORES_CACHE[things_scores_csv]
 
@@ -350,49 +352,50 @@ def _run_things_single(
 
     # Load (cached) embeddings CSV and filter to the requested timepoint
     emb_df = _load_things_emb_csv(things_emb_csv)
-    if 'timepoint_ms' not in emb_df.columns:
+    if "timepoint_ms" not in emb_df.columns:
         raise KeyError(
             f"'timepoint_ms' column not found in {things_emb_csv}.  "
             f"Available columns: {list(emb_df.columns)[:10]}{'...' if len(emb_df.columns) > 10 else ''}.  "
             f"Expected long-format CSV with image_name, timepoint_ms, dim_0..dim_65."
         )
-    tp_df = emb_df[emb_df['timepoint_ms'] == timepoint_ms].copy()
+    tp_df = emb_df[emb_df["timepoint_ms"] == timepoint_ms].copy()
     if tp_df.empty:
         raise ValueError(
-            f'Timepoint {timepoint_ms} ms not found in {things_emb_csv}. '
-            f'Available: {sorted(emb_df["timepoint_ms"].unique().tolist())}'
+            f"Timepoint {timepoint_ms} ms not found in {things_emb_csv}. "
+            f"Available: {sorted(emb_df['timepoint_ms'].unique().tolist())}"
         )
 
     # Load (cached) THINGS memorability scores and join
     scores_df = _load_things_scores_csv(things_scores_csv)
 
-    merged = tp_df.merge(scores_df, on='image_name', how='inner')
+    merged = tp_df.merge(scores_df, on="image_name", how="inner")
     n_images = len(merged)
     if n_images == 0:
         raise ValueError(
-            'No images matched between MEG embeddings CSV and THINGS scores CSV. '
-            'Check image_name formats.'
+            "No images matched between MEG embeddings CSV and THINGS scores CSV. "
+            "Check image_name formats."
         )
 
     # Extract tensors
-    dim_cols = [c for c in merged.columns if c.startswith('dim_')]
+    dim_cols = [c for c in merged.columns if c.startswith("dim_")]
     embeddings = torch.tensor(merged[dim_cols].values, dtype=torch.float32)
-    scores = torch.tensor(merged['cr'].values, dtype=torch.float32)
-    image_names = merged['image_name'].tolist()
+    scores = torch.tensor(merged["cr"].values, dtype=torch.float32)
+    image_names = merged["image_name"].tolist()
 
-    state_dict = torch.load(checkpoint_path, map_location='cpu')
-    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    state_dict = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
 
     # Auto-infer hidden_dims from the checkpoint shapes when the user
     # didn't pass --hidden_dims explicitly (hidden_dims is None then).
     effective_hidden_dims = (
-        hidden_dims if hidden_dims is not None
-        else _infer_hidden_dims_from_state_dict(state_dict)
+        hidden_dims if hidden_dims is not None else _infer_hidden_dims_from_state_dict(state_dict)
     )
 
-    print(f'[THINGS | tp={timepoint_ms:+d} ms | fold {fold}]  '
-          f'{n_images} images  |  checkpoint: {os.path.basename(checkpoint_path)}  |  '
-          f'hidden_dims={effective_hidden_dims}')
+    print(
+        f"[THINGS | tp={timepoint_ms:+d} ms | fold {fold}]  "
+        f"{n_images} images  |  checkpoint: {os.path.basename(checkpoint_path)}  |  "
+        f"hidden_dims={effective_hidden_dims}"
+    )
 
     model = MLPOnlyHead(
         hidden_dims=effective_hidden_dims,
@@ -407,7 +410,7 @@ def _run_things_single(
     all_preds: list = []
     with torch.no_grad():
         for i in range(0, n_images, batch_size):
-            batch_emb = embeddings[i:i + batch_size].to(device)
+            batch_emb = embeddings[i : i + batch_size].to(device)
             preds = model(batch_emb).squeeze(1).cpu().numpy()
             all_preds.extend(preds)
 
@@ -418,32 +421,36 @@ def _run_things_single(
     mse = float(np.mean((all_preds - all_targets) ** 2))
     pred_std = float(all_preds.std())
 
-    print(f'  Spearman rho: {rho:.4f} (p={p_val:.2e})  |  MSE: {mse:.6f}  |  '
-          f'Pred range: [{all_preds.min():.4f}, {all_preds.max():.4f}]  std: {pred_std:.4f}')
+    print(
+        f"  Spearman rho: {rho:.4f} (p={p_val:.2e})  |  MSE: {mse:.6f}  |  "
+        f"Pred range: [{all_preds.min():.4f}, {all_preds.max():.4f}]  std: {pred_std:.4f}"
+    )
 
     # Save per-image predictions
-    pred_csv = output_dir / f'things_tp{timepoint_ms}_fold{fold}_predictions.csv'
-    pd.DataFrame({
-        'image_path': image_names,
-        'pred_score': all_preds,
-        'true_score': all_targets,
-        'timepoint_ms': timepoint_ms,
-        'fold': fold,
-    }).to_csv(pred_csv, index=False)
-    print(f'  -> {pred_csv}')
+    pred_csv = output_dir / f"things_tp{timepoint_ms}_fold{fold}_predictions.csv"
+    pd.DataFrame(
+        {
+            "image_path": image_names,
+            "pred_score": all_preds,
+            "true_score": all_targets,
+            "timepoint_ms": timepoint_ms,
+            "fold": fold,
+        }
+    ).to_csv(pred_csv, index=False)
+    print(f"  -> {pred_csv}")
 
     model.cpu()
     del model
 
     return {
-        'timepoint_ms': timepoint_ms,
-        'fold': fold,
-        'n_images': n_images,
-        'spearman_rho': rho,
-        'spearman_p': p_val,
-        'mse': mse,
-        'pred_std': pred_std,
-        'checkpoint': checkpoint_path,
+        "timepoint_ms": timepoint_ms,
+        "fold": fold,
+        "n_images": n_images,
+        "spearman_rho": rho,
+        "spearman_p": p_val,
+        "mse": mse,
+        "pred_std": pred_std,
+        "checkpoint": checkpoint_path,
     }
 
 
@@ -451,161 +458,175 @@ def _run_things_single(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def run_meg_inference(config: dict) -> None:
     """Run inference for one or all CLIP-HBA-MEG memorability timepoints.
 
     Args:
         config: Configuration dict (see ``main()`` for keys).
     """
-    seed_everything(config['random_seed'])
+    seed_everything(config["random_seed"])
 
-    timestamp  = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = pathlib.Path(config['output_dir']) / timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = pathlib.Path(config["output_dir"]) / timestamp
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device(config['device'])
+    device = torch.device(config["device"])
 
-    timepoints = ALL_TIMEPOINTS if config['timepoints'] == 'all' else config['timepoints']
-    folds      = config['folds']
-    dataset    = config.get('dataset', 'default')
+    timepoints = ALL_TIMEPOINTS if config["timepoints"] == "all" else config["timepoints"]
+    folds = config["folds"]
+    dataset = config.get("dataset", "default")
 
     summary_rows = []
 
     # None signals "auto-infer per checkpoint"; otherwise pass the explicit tuple.
-    hidden_dims_cfg = config['hidden_dims']
+    hidden_dims_cfg = config["hidden_dims"]
     hidden_dims_arg = tuple(hidden_dims_cfg) if hidden_dims_cfg is not None else None
 
     for tp in timepoints:
         for fold in folds:
             try:
-                if dataset == 'things':
+                if dataset == "things":
                     row = _run_things_single(
                         timepoint_ms=tp,
                         fold=fold,
-                        things_emb_csv=config['things_emb_csv'],
-                        things_scores_csv=config['things_scores_csv'],
-                        checkpoint_dir=config['checkpoint_dir'],
+                        things_emb_csv=config["things_emb_csv"],
+                        things_scores_csv=config["things_scores_csv"],
+                        checkpoint_dir=config["checkpoint_dir"],
                         hidden_dims=hidden_dims_arg,
-                        dropout_rate=config['dropout_rate'],
+                        dropout_rate=config["dropout_rate"],
                         device=device,
-                        batch_size=config['batch_size'],
+                        batch_size=config["batch_size"],
                         output_dir=output_dir,
                     )
                 else:
                     row = _run_single(
                         timepoint_ms=tp,
                         fold=fold,
-                        embeddings_dir=config['embeddings_dir'],
-                        checkpoint_dir=config['checkpoint_dir'],
+                        embeddings_dir=config["embeddings_dir"],
+                        checkpoint_dir=config["checkpoint_dir"],
                         hidden_dims=hidden_dims_arg,
-                        dropout_rate=config['dropout_rate'],
+                        dropout_rate=config["dropout_rate"],
                         device=device,
-                        batch_size=config['batch_size'],
+                        batch_size=config["batch_size"],
                         output_dir=output_dir,
-                        training_data=config['training_data'],
+                        training_data=config["training_data"],
                     )
                 summary_rows.append(row)
             except FileNotFoundError as exc:
-                print(f'[WARNING] Skipping tp={tp} ms, fold={fold}: {exc}')
+                print(f"[WARNING] Skipping tp={tp} ms, fold={fold}: {exc}")
 
     if not summary_rows:
-        print('[ERROR] No results produced — check embedding and checkpoint paths.')
+        print("[ERROR] No results produced — check embedding and checkpoint paths.")
         return
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_path = output_dir / 'summary.csv'
+    summary_path = output_dir / "summary.csv"
     summary_df.to_csv(summary_path, index=False)
 
-    print(f'\n{"=" * 60}')
-    print(f'Summary saved to: {summary_path}')
-    print(summary_df[['timepoint_ms', 'fold', 'n_images',
-                       'spearman_rho', 'mse', 'pred_std']].to_string(index=False))
-    print('=' * 60)
+    print(f"\n{'=' * 60}")
+    print(f"Summary saved to: {summary_path}")
+    print(
+        summary_df[
+            ["timepoint_ms", "fold", "n_images", "spearman_rho", "mse", "pred_std"]
+        ].to_string(index=False)
+    )
+    print("=" * 60)
 
 
 def main() -> None:
-    _data_dir_default = os.environ.get('DATA_DIR', './Data')
+    _data_dir_default = os.environ.get("DATA_DIR", "./Data")
 
     parser = argparse.ArgumentParser(
-        description='Inference with trained CLIP-HBA-MEG memorability MLP heads.',
+        description="Inference with trained CLIP-HBA-MEG memorability MLP heads.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        '--data_dir',
+        "--data_dir",
         default=_data_dir_default,
-        help='Root data directory (replaces the ./Data prefix). '
-             'Also settable via DATA_DIR env var.',
+        help="Root data directory (replaces the ./Data prefix). "
+        "Also settable via DATA_DIR env var.",
     )
     parser.add_argument(
-        '--dataset',
-        default='default',
-        choices=['default', 'things'],
-        help='Dataset to run inference on. '
-             '"default" uses precomputed lamem/combined .pt embeddings (per fold). '
-             '"things" uses a long-format CSV of THINGS MEG embeddings '
-             '(--things_emb_csv) and is fold-agnostic at the embedding step '
-             '(same embeddings are reused with each fold\'s MLP head).',
+        "--dataset",
+        default="default",
+        choices=["default", "things"],
+        help="Dataset to run inference on. "
+        '"default" uses precomputed lamem/combined .pt embeddings (per fold). '
+        '"things" uses a long-format CSV of THINGS MEG embeddings '
+        "(--things_emb_csv) and is fold-agnostic at the embedding step "
+        "(same embeddings are reused with each fold's MLP head).",
     )
     parser.add_argument(
-        '--timepoint_ms',
-        nargs='+',
-        default=['0'],
+        "--timepoint_ms",
+        nargs="+",
+        default=["0"],
         help='Timepoint(s) in ms (e.g. 50 150 250) or "all".',
     )
     parser.add_argument(
-        '--fold',
-        default='1',
+        "--fold",
+        default="1",
         help='Fold index or "all" to run all folds '
-             '(1–5 for lamem; 1–10 for combined_lamem_memcat).',
+        "(1–5 for lamem; 1–10 for combined_lamem_memcat).",
     )
     parser.add_argument(
-        '--training_data',
-        default=os.environ.get('TRAINING_DATA', 'combined_lamem_memcat'),
-        choices=['lamem', 'combined_lamem_memcat'],
+        "--training_data",
+        default=os.environ.get("TRAINING_DATA", "combined_lamem_memcat"),
+        choices=["lamem", "combined_lamem_memcat"],
     )
     parser.add_argument(
-        '--embeddings_dir',
+        "--embeddings_dir",
         default=None,
-        help='Directory with precomputed MEG .pt embedding files.  '
-             'Defaults to <data_dir>/{training_data}/meg_embeddings/. '
-             '(Ignored when --dataset things — use --things_emb_csv.)',
+        help="Directory with precomputed MEG .pt embedding files.  "
+        "Defaults to <data_dir>/{training_data}/meg_embeddings/. "
+        "(Ignored when --dataset things — use --things_emb_csv.)",
     )
     parser.add_argument(
-        '--things_emb_csv',
+        "--things_emb_csv",
         default=None,
-        help='Path to THINGS MEG embeddings CSV '
-             '(long-format columns: image_name, timepoint_ms, dim_0..dim_65). '
-             'Required when --dataset things.',
+        help="Path to THINGS MEG embeddings CSV "
+        "(long-format columns: image_name, timepoint_ms, dim_0..dim_65). "
+        "Required when --dataset things.",
     )
     parser.add_argument(
-        '--things_scores_csv',
+        "--things_scores_csv",
         default=None,
-        help='Path to THINGS_Memorability_Scores.csv. '
-             'Defaults to <data_dir>/THINGS_Memorability_Scores.csv.',
+        help="Path to THINGS_Memorability_Scores.csv. "
+        "Defaults to <data_dir>/THINGS_Memorability_Scores.csv.",
     )
     parser.add_argument(
-        '--checkpoint_dir',
+        "--checkpoint_dir",
         default=None,
-        help='Directory with trained .pth MLP head checkpoints.  '
-             'Defaults to ./models/clip_hba_meg_mem/.',
+        help="Directory with trained .pth MLP head checkpoints.  "
+        "Defaults to ./models/clip_hba_meg_mem/.",
     )
     parser.add_argument(
-        '--hidden_dims',
-        nargs='+', type=int, default=None,
-        help='MLP hidden layer sizes.  If omitted, the dims are auto-inferred '
-             'from each checkpoint\'s state_dict shapes (per-timepoint), so '
-             'checkpoints with different MLP sizes can be loaded in one run.',
+        "--hidden_dims",
+        nargs="+",
+        type=int,
+        default=None,
+        help="MLP hidden layer sizes.  If omitted, the dims are auto-inferred "
+        "from each checkpoint's state_dict shapes (per-timepoint), so "
+        "checkpoints with different MLP sizes can be loaded in one run.",
     )
-    parser.add_argument('--dropout_rate', type=float, default=0.0,
-                        help='Dropout rate used to construct the MLP.  '
-                             'IGNORED at inference because model.eval() disables '
-                             'dropout — kept only for parameter compatibility.')
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--device', default='cuda:0',
-                        help='Device string (e.g. cuda:0, cuda:1, cpu).')
-    parser.add_argument('--output_dir', default='./preds/meg_mem/',
-                        help='Directory to save prediction CSVs and summary.')
-    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument(
+        "--dropout_rate",
+        type=float,
+        default=0.0,
+        help="Dropout rate used to construct the MLP.  "
+        "IGNORED at inference because model.eval() disables "
+        "dropout — kept only for parameter compatibility.",
+    )
+    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument(
+        "--device", default="cuda:0", help="Device string (e.g. cuda:0, cuda:1, cpu)."
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="./preds/meg_mem/",
+        help="Directory to save prediction CSVs and summary.",
+    )
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
 
     # Resolve training_data-specific defaults
@@ -613,63 +634,61 @@ def main() -> None:
     data_dir = args.data_dir
     dataset = args.dataset
 
-    if training_data == 'lamem':
+    if training_data == "lamem":
         n_folds = 5
-        default_emb_dir = f'{data_dir}/lamem/meg_embeddings/'
+        default_emb_dir = f"{data_dir}/lamem/meg_embeddings/"
     else:
         n_folds = 10
-        default_emb_dir = f'{data_dir}/combined_lamem_memcat/meg_embeddings/'
+        default_emb_dir = f"{data_dir}/combined_lamem_memcat/meg_embeddings/"
 
     embeddings_dir = args.embeddings_dir or default_emb_dir
-    checkpoint_dir = args.checkpoint_dir or './models/clip_hba_meg_mem/'
+    checkpoint_dir = args.checkpoint_dir or "./models/clip_hba_meg_mem/"
 
     # Resolve timepoints
-    if args.timepoint_ms == ['all']:
-        timepoints = 'all'
+    if args.timepoint_ms == ["all"]:
+        timepoints = "all"
     else:
         timepoints = []
         for tp_str in args.timepoint_ms:
             tp = int(tp_str)
             if tp not in ALL_TIMEPOINTS:
                 raise ValueError(
-                    f'--timepoint_ms {tp} is not in the valid range '
-                    f'({ALL_TIMEPOINTS[0]}..{ALL_TIMEPOINTS[-1]} at 5 ms steps).'
+                    f"--timepoint_ms {tp} is not in the valid range "
+                    f"({ALL_TIMEPOINTS[0]}..{ALL_TIMEPOINTS[-1]} at 5 ms steps)."
                 )
             timepoints.append(tp)
 
     # Resolve folds
-    if args.fold == 'all':
+    if args.fold == "all":
         folds = list(range(1, n_folds + 1))
     else:
         folds = [int(args.fold)]
 
     # THINGS-specific validation
-    if dataset == 'things' and args.things_emb_csv is None:
-        raise ValueError('--things_emb_csv is required when --dataset things.')
+    if dataset == "things" and args.things_emb_csv is None:
+        raise ValueError("--things_emb_csv is required when --dataset things.")
 
-    things_scores_csv = (
-        args.things_scores_csv or f'{data_dir}/THINGS_Memorability_Scores.csv'
-    )
+    things_scores_csv = args.things_scores_csv or f"{data_dir}/THINGS_Memorability_Scores.csv"
 
     config = {
-        'dataset':       dataset,
-        'timepoints':    timepoints,
-        'folds':         folds,
-        'training_data': training_data,
-        'embeddings_dir': embeddings_dir,
-        'checkpoint_dir': checkpoint_dir,
-        'things_emb_csv': args.things_emb_csv,
-        'things_scores_csv': things_scores_csv,
-        'hidden_dims':   args.hidden_dims,
-        'dropout_rate':  args.dropout_rate,
-        'batch_size':    args.batch_size,
-        'device':        args.device,
-        'output_dir':    args.output_dir,
-        'random_seed':   args.seed,
+        "dataset": dataset,
+        "timepoints": timepoints,
+        "folds": folds,
+        "training_data": training_data,
+        "embeddings_dir": embeddings_dir,
+        "checkpoint_dir": checkpoint_dir,
+        "things_emb_csv": args.things_emb_csv,
+        "things_scores_csv": things_scores_csv,
+        "hidden_dims": args.hidden_dims,
+        "dropout_rate": args.dropout_rate,
+        "batch_size": args.batch_size,
+        "device": args.device,
+        "output_dir": args.output_dir,
+        "random_seed": args.seed,
     }
 
     run_meg_inference(config)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

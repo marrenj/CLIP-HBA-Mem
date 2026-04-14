@@ -1,26 +1,26 @@
+import math
+import os
+import random
+import sys
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
+from functions.spose_dimensions import *
+from PIL import Image
+from torch.nn import DataParallel
+from torch.nn import functional as F
+from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
-import pandas as pd
-from PIL import Image
-import os
-import numpy as np
-
-from torch.nn import functional as F
 from tqdm import tqdm
 
-from torch.optim import AdamW
-from torch.nn import DataParallel
+sys.path.append("../")
+import warnings
 
-import random
-import math
-from functions.spose_dimensions import *
-import sys
-sys.path.append('../')
 from src.models.CLIPs.clip_hba import clip
 
-import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
@@ -32,7 +32,9 @@ def seed_everything(seed):
     # Set the seed for PyTorch's random number generators
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8" # required for determinitsic cuBLAS (nn.Linear on CUDA)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = (
+        ":4096:8"  # required for determinitsic cuBLAS (nn.Linear on CUDA)
+    )
 
     # Set the seed for Python's random number generator
     random.seed(seed)
@@ -48,12 +50,16 @@ def seed_everything(seed):
 class ThingsDataset(Dataset):
     def __init__(self, csv_file, img_dir):
         self.img_dir = img_dir
-        self.transform = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.52997664, 0.48070561, 0.41943838],
-                                            std=[0.27608301, 0.26593025, 0.28238822])
-                    ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.52997664, 0.48070561, 0.41943838],
+                    std=[0.27608301, 0.26593025, 0.28238822],
+                ),
+            ]
+        )
 
         # Load and filter annotations based on the 'set' column
         self.annotations = pd.read_csv(csv_file, index_col=0)
@@ -67,10 +73,10 @@ class ThingsDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
 
+        targets = torch.tensor(self.annotations.iloc[index, 1:].values.astype("float32"))
 
-        targets = torch.tensor(self.annotations.iloc[index, 1:].values.astype('float32'))
-        
         return image_name, image, targets
+
 
 def load_clip_to_cpu(backbone_name):
     url = clip._MODELS[backbone_name]
@@ -88,8 +94,9 @@ def load_clip_to_cpu(backbone_name):
 
     return model
 
+
 class CLIPHBA(nn.Module):
-    def __init__(self, classnames, backbone_name='RN50', pos_embedding=False):
+    def __init__(self, classnames, backbone_name="RN50", pos_embedding=False):
         super().__init__()
 
         self.num_clip = len(classnames)
@@ -100,10 +107,9 @@ class CLIPHBA(nn.Module):
         # Disable gradients for all parameters first
         for param in self.clip_model.parameters():
             param.requires_grad = False
-        
+
         # Tokenize all prompts at once and store them as a tensor
         self.tokenized_prompts = torch.stack([clip.tokenize(classname) for classname in classnames])
-
 
     def forward(self, image):
         if self.clip_model.training:
@@ -120,7 +126,6 @@ class CLIPHBA(nn.Module):
         # print(f"pred_score: {pred_score}")
 
         return pred_score
-
 
 
 class LoRALayer(nn.Module):
@@ -148,11 +153,15 @@ class LoRALayer(nn.Module):
 
     @property
     def weight(self):
-        return (self.original_layer.weight.to(self.lora_B.dtype) + (self.lora_B @ self.lora_A) * self.scaling).to(self.original_layer.weight.dtype)
+        return (
+            self.original_layer.weight.to(self.lora_B.dtype)
+            + (self.lora_B @ self.lora_A) * self.scaling
+        ).to(self.original_layer.weight.dtype)
 
     @property
     def bias(self):
         return self.original_layer.bias
+
 
 def apply_lora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, lora_dropout=0.1):
     """
@@ -191,7 +200,6 @@ def apply_lora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, lor
         target_block.attn.out_proj = lora_layer
 
 
-
 def unfreeze_lora_layers(model, freeze_all=True):
     """
     Freeze or unfreeze the model's parameters based on the presence of LoRA layers.
@@ -222,6 +230,7 @@ def unfreeze_lora_layers(model, freeze_all=True):
         else:
             recursive_unfreeze_lora(model)
 
+
 class DoRALayer(nn.Module):
     def __init__(self, original_layer, r=8, dora_alpha=16, dora_dropout=0.1):
         super(DoRALayer, self).__init__()
@@ -240,7 +249,7 @@ class DoRALayer(nn.Module):
         # Store S as a trainable parameter
         self.m = nn.Parameter(S)  # [out_features]
         # Store D as a buffer (since we don't want to update it directly)
-        self.register_buffer('D', D)  # [in_features, out_features]
+        self.register_buffer("D", D)  # [in_features, out_features]
 
         # LoRA adaptation of D
         self.delta_D_A = nn.Parameter(torch.zeros(self.r, original_layer.out_features))
@@ -270,7 +279,9 @@ class DoRALayer(nn.Module):
         D_new = self.D + delta_D  # [in_features, out_features]
 
         # Normalize columns of D_new
-        D_norms = torch.norm(D_new, dim=0, keepdim=True) + 1e-8  # [1, out_features], add epsilon to avoid division by zero
+        D_norms = (
+            torch.norm(D_new, dim=0, keepdim=True) + 1e-8
+        )  # [1, out_features], add epsilon to avoid division by zero
         D_normalized = D_new / D_norms  # [in_features, out_features]
 
         # Reconstruct the adapted weight
@@ -299,9 +310,9 @@ class DoRALayer(nn.Module):
         return F.linear(x, W, self.bias)
 
 
-    
-
-def apply_dora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123):
+def apply_dora_to_ViT(
+    model, n_vision_layers=1, n_transformer_layers=1, r=8, dora_dropout=0.1, seed=123
+):
 
     if isinstance(model, torch.nn.DataParallel):
         model_module = model.module
@@ -331,7 +342,6 @@ def apply_dora_to_ViT(model, n_vision_layers=1, n_transformer_layers=1, r=8, dor
         # Replace the original layer with a DoRALayer
         dora_layer = DoRALayer(target_layer, r=r, dora_dropout=dora_dropout)
         target_block.attn.out_proj = dora_layer
-
 
 
 def switch_dora_layers(model, freeze_all=True, dora_state=True):
@@ -365,7 +375,6 @@ def switch_dora_layers(model, freeze_all=True, dora_state=True):
             recursive_unfreeze_dora(model)
 
 
-
 def count_trainable_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
     # return sum(p.numel() for p in model.parameters())
@@ -379,7 +388,7 @@ def unfreeze_image_layers(model):
         model_module = model
 
     # Unfreezing the last layer of the image encoder
-        
+
     for param in model_module.clip_model.visual.layer3.parameters():
         param.requires_grad = True
 
@@ -398,11 +407,9 @@ def unfreeze_image_layers_all(model):
         model_module = model
 
     # Unfreezing the last layer of the image encoder
-        
+
     for param in model_module.clip_model.visual.parameters():
         param.requires_grad = True
-
-
 
 
 def evaluate_model(model, data_loader, device, criterion):
@@ -410,7 +417,10 @@ def evaluate_model(model, data_loader, device, criterion):
     total_loss = 0.0
 
     # Wrap data_loader with tqdm for a progress bar
-    with torch.no_grad(), tqdm(enumerate(data_loader), total=len(data_loader), desc="Evaluating") as progress_bar:
+    with (
+        torch.no_grad(),
+        tqdm(enumerate(data_loader), total=len(data_loader), desc="Evaluating") as progress_bar,
+    ):
         for batch_idx, (_, images, targets) in progress_bar:
             images = images.to(device)
             targets = targets.to(device)
@@ -418,16 +428,26 @@ def evaluate_model(model, data_loader, device, criterion):
             predictions = model(images)
 
             loss = criterion(predictions, targets)
-            progress_bar.set_postfix({'loss': loss.item()})
-            total_loss += loss.item() * images.size(0) 
+            progress_bar.set_postfix({"loss": loss.item()})
+            total_loss += loss.item() * images.size(0)
 
     avg_loss = total_loss / len(data_loader.dataset)
     return avg_loss
 
 
-def train_model(model, train_loader, test_loader, device, optimizer, criterion, epochs, early_stopping_patience=5, checkpoint_path='clip_hba_model_cv.pth'):
+def train_model(
+    model,
+    train_loader,
+    test_loader,
+    device,
+    optimizer,
+    criterion,
+    epochs,
+    early_stopping_patience=5,
+    checkpoint_path="clip_hba_model_cv.pth",
+):
     model.train()
-    best_test_loss = float('inf')
+    best_test_loss = float("inf")
     epochs_no_improve = 0
     loss_data = []  # To store loss data for plotting
 
@@ -438,50 +458,51 @@ def train_model(model, train_loader, test_loader, device, optimizer, criterion, 
     print(f"Initial Validation Loss: {best_test_loss:.4f}")
     print("*********************************\n")
 
-
     for epoch in range(epochs):
         total_loss = 0.0
 
-        progress_bar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}")
+        progress_bar = tqdm(
+            enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch + 1}/{epochs}"
+        )
         for batch_idx, (_, images, targets) in progress_bar:
-
             images = images.to(device)
             targets = targets.to(device)
 
             optimizer.zero_grad()
             predictions = model(images)
-            
+
             loss = criterion(predictions, targets)
-            progress_bar.set_postfix({'loss': loss.item()})
+            progress_bar.set_postfix({"loss": loss.item()})
             loss.backward()
             optimizer.step()
-            
+
             total_loss += loss.item() * images.size(0)
         avg_train_loss = total_loss / len(train_loader.dataset)
 
         # Evaluate after every epoch
         avg_test_loss = evaluate_model(model, test_loader, device, criterion)
-        print(f"Epoch {epoch+1}: Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_test_loss:.4f}")
+        print(
+            f"Epoch {epoch + 1}: Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_test_loss:.4f}"
+        )
 
-
-        loss_data.append({'epoch': epoch + 1, 'loss': avg_train_loss, 'type': 'Train'})
-        loss_data.append({'epoch': epoch + 1, 'loss': avg_test_loss, 'type': 'Test'})
+        loss_data.append({"epoch": epoch + 1, "loss": avg_train_loss, "type": "Train"})
+        loss_data.append({"epoch": epoch + 1, "loss": avg_test_loss, "type": "Test"})
 
         # Check for early stopping and saving checkpoint
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
             epochs_no_improve = 0
             # Save the model checkpoint
-            torch.save(model.state_dict(),checkpoint_path)
+            torch.save(model.state_dict(), checkpoint_path)
             print("\n\n-----------------------------------")
-            print(f"Checkpoint saved for epoch {epoch+1}")
+            print(f"Checkpoint saved for epoch {epoch + 1}")
             print("-----------------------------------\n\n")
         else:
             epochs_no_improve += 1
 
         if epochs_no_improve == early_stopping_patience:
             print("\n\n*********************************")
-            print(f"Early stopping triggered at epoch {epoch+1}")
+            print(f"Early stopping triggered at epoch {epoch + 1}")
             print("*********************************\n\n")
             break
 
@@ -489,60 +510,63 @@ def train_model(model, train_loader, test_loader, device, optimizer, criterion, 
 def run_behavioral_traning(config):
     """
     Run behavioral training with the given configuration.
-    
+
     Args:
         config (dict): Configuration dictionary containing training parameters
     """
-    seed_everything(config['random_seed'])
-    
+    seed_everything(config["random_seed"])
+
     # Initialize dataset
-    dataset = ThingsDataset(csv_file=config['csv_file'], img_dir=config['img_dir'])
-    
+    dataset = ThingsDataset(csv_file=config["csv_file"], img_dir=config["img_dir"])
+
     # Split dataset
-    train_size = int(config['train_portion'] * len(dataset))
+    train_size = int(config["train_portion"] * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
-    
+
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
-    
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
+
     # Determine pos_embedding based on backbone
-    pos_embedding = False if config['backbone'] == 'RN50' else True
+    pos_embedding = False if config["backbone"] == "RN50" else True
     print(f"pos_embedding is {pos_embedding}")
-    
+
     # Initialize model
-    model = CLIPHBA(classnames=classnames66, backbone_name=config['backbone'], 
-                    pos_embedding=pos_embedding)
-    
+    model = CLIPHBA(
+        classnames=classnames66, backbone_name=config["backbone"], pos_embedding=pos_embedding
+    )
+
     # Set device
-    if config['cuda'] == -1:
+    if config["cuda"] == -1:
         device = torch.device("cuda")
-    elif config['cuda'] == 0:
+    elif config["cuda"] == 0:
         device = torch.device("cuda:0")
-    elif config['cuda'] == 1:
+    elif config["cuda"] == 1:
         device = torch.device("cuda:1")
     else:
         device = torch.device("cpu")
-    
+
     # Apply DoRA
-    apply_dora_to_ViT(model, 
-                      n_vision_layers=config['vision_layers'],
-                      n_transformer_layers=config['transformer_layers'],
-                      r=config['rank'],
-                      dora_dropout=0.1)
+    apply_dora_to_ViT(
+        model,
+        n_vision_layers=config["vision_layers"],
+        n_transformer_layers=config["transformer_layers"],
+        r=config["rank"],
+        dora_dropout=0.1,
+    )
     switch_dora_layers(model, freeze_all=True, dora_state=True)
-    
+
     # Use DataParallel if using all GPUs
-    if config['cuda'] == -1:
+    if config["cuda"] == -1:
         print(f"Using {torch.cuda.device_count()} GPUs")
         model = DataParallel(model)
-    
+
     model.to(device)
-    
+
     # Initialize optimizer
-    optimizer = AdamW(model.parameters(), lr=config['lr'])
-    
+    optimizer = AdamW(model.parameters(), lr=config["lr"])
+
     # Print training information
     print("\nModel Configuration:")
     print("-------------------")
@@ -553,10 +577,16 @@ def run_behavioral_traning(config):
         if param.requires_grad:
             print(name)
     print(f"\nNumber of trainable parameters: {count_trainable_parameters(model)}\n")
-    
+
     # Train model
-    train_model(model, train_loader, test_loader, device, optimizer, 
-                config['criterion'], config['epochs'], 
-                config['early_stopping_patience'],
-                config['checkpoint_path'],
-                )
+    train_model(
+        model,
+        train_loader,
+        test_loader,
+        device,
+        optimizer,
+        config["criterion"],
+        config["epochs"],
+        config["early_stopping_patience"],
+        config["checkpoint_path"],
+    )
